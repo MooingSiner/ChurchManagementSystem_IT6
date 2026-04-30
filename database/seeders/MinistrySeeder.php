@@ -19,9 +19,7 @@ class MinistrySeeder extends Seeder
         ];
 
         foreach ($ministries as $name) {
-            Ministry::create([
-                'ministry_name' => $name,
-            ]);
+            Ministry::updateOrCreate(['ministry_name' => $name]);
         }
     }
 }

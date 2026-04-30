@@ -20,6 +20,6 @@ class Ministry extends Model
             'members_ministries',
             'ministry_id',
             'member_id'
-        );
+        )->withPivot(['role_in_ministry', 'date_joined', 'status']);
     }
 }

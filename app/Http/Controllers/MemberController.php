@@ -7,6 +7,7 @@ use App\Models\Ministry;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
 use Exception;
 
 class MemberController extends Controller
@@ -89,6 +90,7 @@ class MemberController extends Controller
             'city' => 'nullable|string|max:255',
             'province' => 'nullable|string|max:255',
             'ministry_id' => 'nullable|integer|exists:ministries,ministry_id',
+            'ministry_status' => ['nullable', Rule::in(['active', 'inactive', 'left'])],
         ]);
 
         $member = Members::create([
@@ -105,7 +107,10 @@ class MemberController extends Controller
 ]);
 
         if (!empty($validatedData['ministry_id'])) {
-            $member->ministries()->attach($validatedData['ministry_id']);
+            $member->ministries()->attach($validatedData['ministry_id'], [
+                'date_joined' => today(),
+                'status' => $validatedData['ministry_status'] ?? 'active',
+            ]);
         }
 
         return redirect()->back()->with('success', 'Member added successfully');
@@ -147,6 +152,7 @@ class MemberController extends Controller
             'city' => 'nullable|string|max:255',
             'province' => 'nullable|string|max:255',
             'ministry_id' => 'nullable|integer|exists:ministries,ministry_id',
+            'ministry_status' => ['nullable', Rule::in(['active', 'inactive', 'left'])],
         ]);
 
         $member->update([
@@ -165,7 +171,16 @@ class MemberController extends Controller
     
 
         if (!empty($validatedData['ministry_id'])) {
-            $member->ministries()->sync([$validatedData['ministry_id']]);
+            $existingMinistry = $member->ministries()
+                ->where('ministries.ministry_id', $validatedData['ministry_id'])
+                ->first();
+
+            $member->ministries()->sync([
+                $validatedData['ministry_id'] => [
+                    'date_joined' => $existingMinistry?->pivot?->date_joined ?? today(),
+                    'status' => $validatedData['ministry_status'] ?? 'active',
+                ],
+            ]);
         } else {
             $member->ministries()->detach();
         }

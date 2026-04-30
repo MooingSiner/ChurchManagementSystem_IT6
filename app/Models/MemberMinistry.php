@@ -15,5 +15,6 @@ class MemberMinistry extends Model
         'ministry_id',
         'role_in_ministry',
         'date_joined',
+        'status',
     ];
 }

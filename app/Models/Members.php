@@ -34,7 +34,7 @@ class Members extends Model
             'members_ministries',
             'member_id',
             'ministry_id',
-        );
+        )->withPivot(['role_in_ministry', 'date_joined', 'status']);
     }
 
     public function attendances()

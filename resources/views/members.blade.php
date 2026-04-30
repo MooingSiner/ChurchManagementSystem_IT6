@@ -257,7 +257,8 @@
                                           '{{ $member->street }}',
                                           '{{ $member->city }}',
                                           '{{ $member->province }}',
-                                          '{{ $member->ministries->first()->ministry_id ?? '' }}'
+                                          '{{ $member->ministries->first()->ministry_id ?? '' }}',
+                                          '{{ $member->ministries->first()->pivot->status ?? 'active' }}'
                                       )"
                                       class="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded">
                                       <svg class="h-4 w-4 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -317,7 +318,7 @@
                                 </svg>
                             @forelse($member->ministries as $ministry)
                                 <span class="inline-block px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-700">
-                                    {{ $ministry->ministry_name }}
+                                    {{ $ministry->ministry_name }} - {{ ucfirst($ministry->pivot->status ?? 'active') }}
                                 </span>
                             @empty
                                 <span class="text-gray-400">No ministry</span>
@@ -389,9 +390,10 @@
                                     '{{ $member->email }}',
                                     '{{ $member->phone_number }}',
                                     '{{ $member->street }}',
-                                    '{{ $member->province }}',
                                     '{{ $member->city }}',
-                                    '{{ $member->ministries->first()->ministry_id ?? '' }}'
+                                    '{{ $member->province }}',
+                                    '{{ $member->ministries->first()->ministry_id ?? '' }}',
+                                    '{{ $member->ministries->first()->pivot->status ?? 'active' }}'
                                 )"
                                 class="h-8 w-8 p-0 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded">
                                 <svg class="h-4 w-4 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -637,6 +639,24 @@
   </div>
 </div>
 
+<div>
+  <label for="ministry_status" class="block text-sm font-medium text-gray-700 mb-2 mt-2">Ministry Status</label>
+  <div class="relative">
+    <select id="ministry_status" name="ministry_status"
+      class="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none">
+      <option value="active">Active</option>
+      <option value="inactive">Inactive</option>
+      <option value="left">Left</option>
+    </select>
+
+    <div class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-gray-500">
+      <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+      </svg>
+    </div>
+  </div>
+</div>
+
 <div class="flex gap-3 pt-2">
   <button type="button" onclick="closeMemberModal()" class="flex-1 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 mb-1">
     Cancel
@@ -763,6 +783,24 @@
       
           </div>
 
+        <div>
+          <label for="edit_ministry_status" class="block text-sm font-medium text-gray-700 mb-2 mt-2">Ministry Status</label>
+          <div class="relative">
+            <select id="edit_ministry_status" name="ministry_status"
+              class="w-full px-3 py-2 pr-10 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 appearance-none">
+              <option value="active">Active</option>
+              <option value="inactive">Inactive</option>
+              <option value="left">Left</option>
+            </select>
+
+            <div class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-gray-500">
+              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </div>
+          </div>
+        </div>
+
         <div class="flex gap-3 pt-2 mt-2">
           <button type="button" onclick="closeEditMemberModal()" class="flex-1 px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 mb-1">
             Cancel
@@ -865,7 +903,7 @@ document.addEventListener('click', function (e) {
     document.getElementById('memberModal').classList.add('hidden');
   }
 
-  function openEditMemberModal(id, fname, mname, lname, gender, birthDate, email, phone, street, province, city, ministryId = '') {
+  function openEditMemberModal(id, fname, mname, lname, gender, birthDate, email, phone, street, city, province, ministryId = '', ministryStatus = 'active') {
     const form = document.getElementById('editMemberForm');
     form.action = `/members/${id}`;
 
@@ -880,6 +918,7 @@ document.addEventListener('click', function (e) {
     document.getElementById('edit_province').value = province;
     document.getElementById('edit_city').value = city;
     document.getElementById('edit_ministry_id').value = ministryId;
+    document.getElementById('edit_ministry_status').value = ministryStatus || 'active';
 
     document.getElementById('editMemberModal').classList.remove('hidden');
   }
