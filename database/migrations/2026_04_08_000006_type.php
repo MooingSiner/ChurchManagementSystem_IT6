@@ -13,9 +13,9 @@ return new class extends Migration
 {
     Schema::create('types', function (Blueprint $table) {
         $table->id('type_id');
-        $table->string('type_name');
+        $table->string('type_name')->unique();
 
-            $table->timestamps();
+        $table->timestamps();
     });
 }
     /**
@@ -23,6 +23,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        //
+        Schema::dropIfExists('types');
     }
 };

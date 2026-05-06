@@ -2,16 +2,16 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Members;
-use App\Models\Ministry;
+use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
-use Exception;
 
 class MemberController extends Controller
-{   
+{
     protected function memberErrorMessage(Exception $e, string $action): string
     {
         if ($e instanceof QueryException) {
@@ -29,206 +29,293 @@ class MemberController extends Controller
         return "Could not {$action} the member right now. Refresh the page and try again.";
     }
 
+    protected function ministryOptions()
+    {
+        return DB::table('ministries')
+            ->orderBy('ministry_name')
+            ->get();
+    }
+
+    protected function loadMinistriesForMembers(Collection $members): Collection
+    {
+        $memberIds = $members->pluck('member_id')->filter()->values();
+
+        $ministriesByMember = DB::table('vw_members_full')
+            ->whereIn('member_id', $memberIds)
+            ->whereNotNull('ministry_id')
+            ->select(
+                'member_id',
+                'ministry_id',
+                'ministry_name',
+                'date_joined',
+                'ministry_status as status'
+            )
+            ->orderBy('ministry_name')
+            ->get()
+            ->groupBy('member_id');
+
+        return $members->map(function ($member) use ($ministriesByMember) {
+            $member->ministries = collect($ministriesByMember->get($member->member_id, []))->map(function ($ministry) {
+                $ministry->pivot = (object) [
+                    'date_joined' => $ministry->date_joined,
+                    'status' => $ministry->status,
+                ];
+
+                return $ministry;
+            })->values();
+
+            return $member;
+        });
+    }
+
+    protected function filteredMembers(Request $request, bool $archived)
+    {
+        $search = trim((string) $request->query('member_search', ''));
+        $ministryId = $request->query('ministry_id');
+        $gender = $request->query('gender');
+
+        return DB::table('vw_members_full')
+            ->select(
+                'member_id',
+                'member_fname',
+                'member_mname',
+                'member_lname',
+                'gender',
+                'birth_date',
+                'email',
+                'phone_number',
+                'street',
+                'city',
+                'province',
+                'is_archived',
+                'archived_at',
+                'created_at',
+                'updated_at'
+            )
+            ->distinct()
+            ->where('is_archived', $archived)
+            ->when($search !== '', function ($query) use ($search) {
+                $query->where(function ($query) use ($search) {
+                    $query->where('member_fname', 'like', "%{$search}%")
+                        ->orWhere('member_mname', 'like', "%{$search}%")
+                        ->orWhere('member_lname', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('phone_number', 'like', "%{$search}%")
+                        ->orWhere('street', 'like', "%{$search}%")
+                        ->orWhere('city', 'like', "%{$search}%")
+                        ->orWhere('province', 'like', "%{$search}%")
+                        ->orWhere('ministry_name', 'like', "%{$search}%");
+                });
+            })
+            ->when($ministryId, function ($query) use ($ministryId) {
+                $query->where('ministry_id', $ministryId);
+            })
+            ->when($gender, function ($query) use ($gender) {
+                $query->where('gender', $gender);
+            });
+    }
+
     public function member()
     {
-        $members = Members::with(['ministries'])
-            ->where('is_archived', false)
+        return $this->index(request());
+    }
+
+    public function index(Request $request)
+    {
+        $members = $this->filteredMembers($request, false)
             ->orderBy('member_lname')
             ->orderBy('member_fname')
             ->paginate(6, ['*'], 'members_page')
             ->withQueryString();
+        $members->setCollection($this->loadMinistriesForMembers($members->getCollection()));
 
-        $archivedMembers = Members::with(['ministries'])
-            ->where('is_archived', true)
+        $archivedMembers = $this->filteredMembers($request, true)
             ->orderByDesc('archived_at')
             ->paginate(6, ['*'], 'archived_page')
             ->withQueryString();
+        $archivedMembers->setCollection($this->loadMinistriesForMembers($archivedMembers->getCollection()));
 
-        $ministries = Ministry::all();
+        $ministries = $this->ministryOptions();
 
         return view('members', compact('members', 'archivedMembers', 'ministries'));
     }
 
-    public function index()
-{
-    $members = Members::with(['ministries'])
-        ->where('is_archived', false)
-        ->orderBy('member_lname')
-        ->orderBy('member_fname')
-        ->paginate(6, ['*'], 'members_page')
-        ->withQueryString();
-
-    $archivedMembers = Members::with(['ministries'])
-        ->where('is_archived', true)
-        ->orderByDesc('archived_at')
-        ->paginate(6, ['*'], 'archived_page')
-        ->withQueryString();
-
-    $ministries = Ministry::all();
-
-    return view('members', compact('members', 'archivedMembers', 'ministries'));
-}
-
     public function create()
     {
-        $ministries = Ministry::all();
+        $ministries = $this->ministryOptions();
         return view('members.create', compact('ministries'));
     }
 
     public function store(Request $request)
     {
-    try{
-        $validatedData = $request->validate([
-            'member_fname' => 'required|string|max:255',
-            'member_mname' => 'nullable|string|max:255',
-            'member_lname' => 'required|string|max:255',
-            'gender' => 'required|string|max:10',
-            'birth_date' => 'required|date',
-            'email' => 'required|email|unique:members,email',
-            'phone_number' => 'required|string|max:20|unique:members,phone_number',
-            'street' => 'nullable|string|max:500',
-            'city' => 'nullable|string|max:255',
-            'province' => 'nullable|string|max:255',
-            'ministry_id' => 'nullable|integer|exists:ministries,ministry_id',
-            'ministry_status' => ['nullable', Rule::in(['active', 'inactive', 'left'])],
-        ]);
-
-        $member = Members::create([
-    'member_fname' => $validatedData['member_fname'],
-    'member_mname' => $validatedData['member_mname'] ?? null,
-    'member_lname' => $validatedData['member_lname'],
-    'gender' => $validatedData['gender'],
-    'birth_date' => $validatedData['birth_date'],
-    'email' => $validatedData['email'],
-    'phone_number' => $validatedData['phone_number'],
-    'street' => $validatedData['street'] ?? null,
-    'city' => $validatedData['city'] ?? null,
-    'province' => $validatedData['province'] ?? null,
-]);
-
-        if (!empty($validatedData['ministry_id'])) {
-            $member->ministries()->attach($validatedData['ministry_id'], [
-                'date_joined' => today(),
-                'status' => $validatedData['ministry_status'] ?? 'active',
+        try {
+            $validatedData = $request->validate([
+                'member_fname' => 'required|string|max:255',
+                'member_mname' => 'nullable|string|max:255',
+                'member_lname' => 'required|string|max:255',
+                'gender' => 'required|string|max:10',
+                'birth_date' => 'required|date',
+                'email' => 'required|email|unique:members,email',
+                'phone_number' => 'required|string|max:20|unique:members,phone_number',
+                'street' => 'nullable|string|max:500',
+                'city' => 'nullable|string|max:255',
+                'province' => 'nullable|string|max:255',
+                'ministry_id' => 'nullable|integer|exists:ministries,ministry_id',
+                'ministry_status' => ['nullable', Rule::in(['active', 'inactive', 'left'])],
             ]);
+
+            DB::select('CALL sp_create_member(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+                $validatedData['member_fname'],
+                $validatedData['member_mname'] ?? null,
+                $validatedData['member_lname'],
+                $validatedData['gender'],
+                $validatedData['birth_date'],
+                $validatedData['email'],
+                $validatedData['phone_number'],
+                $validatedData['street'] ?? null,
+                $validatedData['city'] ?? null,
+                $validatedData['province'] ?? null,
+                $validatedData['ministry_id'] ?? null,
+                $validatedData['ministry_status'] ?? 'active',
+            ]);
+
+            return redirect()->back()->with('success', 'Member added successfully');
+        } catch (Exception $e) {
+            return redirect()->back()
+                ->withInput()
+                ->with('error', $this->memberErrorMessage($e, 'add'));
+        }
+    }
+
+    protected function memberWithMinistriesOrFail($id)
+    {
+        $member = DB::table('vw_members_full')
+            ->select(
+                'member_id',
+                'member_fname',
+                'member_mname',
+                'member_lname',
+                'gender',
+                'birth_date',
+                'email',
+                'phone_number',
+                'street',
+                'city',
+                'province',
+                'is_archived',
+                'archived_at',
+                'created_at',
+                'updated_at'
+            )
+            ->where('member_id', $id)
+            ->first();
+
+        if (! $member) {
+            throw new ModelNotFoundException();
         }
 
-        return redirect()->back()->with('success', 'Member added successfully');
-        }catch(Exception $e) {
-        return redirect()->back()
-            ->withInput()
-            ->with('error', $this->memberErrorMessage($e, 'add'));
-    }
+        return $this->loadMinistriesForMembers(collect([$member]))->first();
     }
 
     public function show($id)
     {
-        $member = Members::with(['ministries'])->findOrFail($id);
+        $member = $this->memberWithMinistriesOrFail($id);
         return view('members.show', compact('member'));
     }
 
     public function edit($id)
     {
-        $member = Members::with(['ministries'])->findOrFail($id);
-        $ministries = Ministry::all();
+        $member = $this->memberWithMinistriesOrFail($id);
+        $ministries = $this->ministryOptions();
 
         return view('members.edit', compact('member', 'ministries'));
     }
 
     public function update(Request $request, $id)
     {
-        try{
-        $member = Members::findOrFail($id);
+        try {
+            $member = DB::table('vw_members_full')->where('member_id', $id)->first();
 
-        $validatedData = $request->validate([
-            'member_fname' => 'required|string|max:255',
-            'member_mname' => 'nullable|string|max:255',
-            'member_lname' => 'required|string|max:255',
-            'gender' => 'required|string|max:10',
-            'birth_date' => 'required|date',
-            'email' => 'required|email|unique:members,email,' . $id . ',member_id',
-            'phone_number' => 'required|string|max:20|unique:members,phone_number,' . $id . ',member_id',
-            'street' => 'nullable|string|max:500',
-            'city' => 'nullable|string|max:255',
-            'province' => 'nullable|string|max:255',
-            'ministry_id' => 'nullable|integer|exists:ministries,ministry_id',
-            'ministry_status' => ['nullable', Rule::in(['active', 'inactive', 'left'])],
-        ]);
+            if (! $member) {
+                throw new ModelNotFoundException();
+            }
 
-        $member->update([
-    'member_fname' => $validatedData['member_fname'],
-    'member_mname' => $validatedData['member_mname'] ?? null,
-    'member_lname' => $validatedData['member_lname'],
-    'gender' => $validatedData['gender'],
-    'birth_date' => $validatedData['birth_date'],
-    'email' => $validatedData['email'],
-    'phone_number' => $validatedData['phone_number'],
-    'street' => $validatedData['street'] ?? null,
-    'city' => $validatedData['city'] ?? null,
-    'province' => $validatedData['province'] ?? null,
-]);
-
-    
-
-        if (!empty($validatedData['ministry_id'])) {
-            $existingMinistry = $member->ministries()
-                ->where('ministries.ministry_id', $validatedData['ministry_id'])
-                ->first();
-
-            $member->ministries()->sync([
-                $validatedData['ministry_id'] => [
-                    'date_joined' => $existingMinistry?->pivot?->date_joined ?? today(),
-                    'status' => $validatedData['ministry_status'] ?? 'active',
-                ],
+            $validatedData = $request->validate([
+                'member_fname' => 'required|string|max:255',
+                'member_mname' => 'nullable|string|max:255',
+                'member_lname' => 'required|string|max:255',
+                'gender' => 'required|string|max:10',
+                'birth_date' => 'required|date',
+                'email' => 'required|email|unique:members,email,' . $id . ',member_id',
+                'phone_number' => 'required|string|max:20|unique:members,phone_number,' . $id . ',member_id',
+                'street' => 'nullable|string|max:500',
+                'city' => 'nullable|string|max:255',
+                'province' => 'nullable|string|max:255',
+                'ministry_id' => 'nullable|integer|exists:ministries,ministry_id',
+                'ministry_status' => ['nullable', Rule::in(['active', 'inactive', 'left'])],
             ]);
-        } else {
-            $member->ministries()->detach();
-        }
 
-        return redirect()->back()->with('success', 'Member updated successfully');
-        }catch (Exception $e) {
-        return redirect()->back()
-            ->withInput()
-            ->with('error', $this->memberErrorMessage($e, 'update'));
-    }
+            DB::select('CALL sp_update_member(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)', [
+                $id,
+                $validatedData['member_fname'],
+                $validatedData['member_mname'] ?? null,
+                $validatedData['member_lname'],
+                $validatedData['gender'],
+                $validatedData['birth_date'],
+                $validatedData['email'],
+                $validatedData['phone_number'],
+                $validatedData['street'] ?? null,
+                $validatedData['city'] ?? null,
+                $validatedData['province'] ?? null,
+                $validatedData['ministry_id'] ?? null,
+                $validatedData['ministry_status'] ?? 'active',
+            ]);
+
+            return redirect()->back()->with('success', 'Member updated successfully');
+        } catch (Exception $e) {
+            return redirect()->back()
+                ->withInput()
+                ->with('error', $this->memberErrorMessage($e, 'update'));
+        }
     }
 
     public function destroy($id)
-{
-    try{
-    $member = Members::findOrFail($id);
+    {
+        try {
+            $updated = DB::table('members')->where('member_id', $id)->exists();
 
-    $member->update([
-        'is_archived' => true,
-        'archived_at' => now(),
-    ]);
+            if (! $updated) {
+                throw new ModelNotFoundException();
+            }
 
-    return redirect()->back()
-        ->with('error', 'Member archived successfully!');
-    }catch(Exception $e) {
-        return redirect()->back()
-            ->withInput()
-            ->with('error', $this->memberErrorMessage($e, 'archive'));
+            DB::statement('CALL sp_set_member_archive(?, ?)', [$id, 1]);
+
+            return redirect()->back()
+                ->with('error', 'Member archived successfully!');
+        } catch (Exception $e) {
+            return redirect()->back()
+                ->withInput()
+                ->with('error', $this->memberErrorMessage($e, 'archive'));
+        }
     }
-}
-    
-public function restore($id)
-{
-    try{
-    $member = Members::findOrFail($id);
 
-    $member->update([
-        'is_archived' => false,
-        'archived_at' => null,
-    ]);
+    public function restore($id)
+    {
+        try {
+            $updated = DB::table('members')->where('member_id', $id)->exists();
 
-    return redirect()->back()
-        ->with('success', 'Member restored successfully!');
-    }catch(Exception $e) {
-        return redirect()->back()
-            ->withInput()
-            ->with('error', $this->memberErrorMessage($e, 'restore'));
+            if (! $updated) {
+                throw new ModelNotFoundException();
+            }
+
+            DB::statement('CALL sp_set_member_archive(?, ?)', [$id, 0]);
+
+            return redirect()->back()
+                ->with('success', 'Member restored successfully!');
+        } catch (Exception $e) {
+            return redirect()->back()
+                ->withInput()
+                ->with('error', $this->memberErrorMessage($e, 'restore'));
+        }
     }
-}
-    
 }

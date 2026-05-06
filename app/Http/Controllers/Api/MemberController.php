@@ -3,26 +3,117 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Members;
 use Illuminate\Http\Request;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class MemberController extends Controller
 {
-    public function index()
+    protected function loadMinistries(Collection $members): Collection
     {
-        $membersQuery = Members::with(['ministries']);
+        $memberIds = $members->pluck('member_id')->filter()->values();
 
-        if (request()->boolean('only_archived')) {
+        $ministriesByMember = DB::table('members_ministries')
+            ->join('ministries', 'members_ministries.ministry_id', '=', 'ministries.ministry_id')
+            ->whereIn('members_ministries.member_id', $memberIds)
+            ->select(
+                'members_ministries.member_id',
+                'ministries.ministry_id',
+                'ministries.ministry_name',
+                'members_ministries.date_joined',
+                'members_ministries.status'
+            )
+            ->get()
+            ->groupBy('member_id');
+
+        return $members->map(function ($member) use ($ministriesByMember) {
+            $member->ministries = collect($ministriesByMember->get($member->member_id, []))->map(function ($ministry) {
+                $ministry->pivot = (object) [
+                    'date_joined' => $ministry->date_joined,
+                    'status' => $ministry->status,
+                ];
+
+                return $ministry;
+            })->values();
+
+            return $member;
+        });
+    }
+
+    protected function membersQuery(Request $request)
+    {
+        $search = trim((string) $request->query('search', $request->query('member_search', '')));
+        $ministryId = $request->query('ministry_id');
+        $gender = $request->query('gender');
+        $city = $request->query('city');
+        $province = $request->query('province');
+
+        $membersQuery = DB::table('members')
+            ->leftJoin('members_ministries', 'members.member_id', '=', 'members_ministries.member_id')
+            ->leftJoin('ministries', 'members_ministries.ministry_id', '=', 'ministries.ministry_id')
+            ->select('members.*')
+            ->distinct();
+
+        if ($request->boolean('only_archived')) {
             $membersQuery->where('is_archived', true);
-        } elseif (! request()->boolean('include_archived')) {
+        } elseif (! $request->boolean('include_archived')) {
             $membersQuery->where('is_archived', false);
         }
 
-        $members = $membersQuery
-            ->orderBy('member_fname')
-            ->orderBy('member_lname')
-            ->get();
+        return $membersQuery
+            ->when($search !== '', function ($query) use ($search) {
+                $query->where(function ($query) use ($search) {
+                    $query->where('member_fname', 'like', "%{$search}%")
+                        ->orWhere('member_mname', 'like', "%{$search}%")
+                        ->orWhere('member_lname', 'like', "%{$search}%")
+                        ->orWhere('email', 'like', "%{$search}%")
+                        ->orWhere('phone_number', 'like', "%{$search}%")
+                        ->orWhere('street', 'like', "%{$search}%")
+                        ->orWhere('city', 'like', "%{$search}%")
+                        ->orWhere('province', 'like', "%{$search}%")
+                        ->orWhere('ministries.ministry_name', 'like', "%{$search}%");
+                });
+            })
+            ->when($ministryId, fn ($query) => $query->where('members_ministries.ministry_id', $ministryId))
+            ->when($gender, fn ($query) => $query->where('gender', $gender))
+            ->when($city, fn ($query) => $query->where('city', 'like', "%{$city}%"))
+            ->when($province, fn ($query) => $query->where('province', 'like', "%{$province}%"));
+    }
+
+    public function index(Request $request)
+    {
+        $sorts = [
+            'first_name' => 'member_fname',
+            'last_name' => 'member_lname',
+            'created_at' => 'created_at',
+            'archived_at' => 'archived_at',
+        ];
+        $sortBy = $sorts[$request->query('sort_by', 'first_name')] ?? 'member_fname';
+        $sortDirection = $request->query('sort_direction') === 'desc' ? 'desc' : 'asc';
+
+        $membersQuery = $this->membersQuery($request)
+            ->orderBy($sortBy, $sortDirection)
+            ->orderBy('member_lname');
+
+        if ($request->filled('per_page')) {
+            $perPage = min(max((int) $request->integer('per_page', 15), 1), 100);
+            $members = $membersQuery->paginate($perPage)->withQueryString();
+            $members->setCollection($this->loadMinistries($members->getCollection()));
+
+            return response()->json([
+                'success' => true,
+                'data' => $members->items(),
+                'meta' => [
+                    'current_page' => $members->currentPage(),
+                    'per_page' => $members->perPage(),
+                    'total' => $members->total(),
+                    'last_page' => $members->lastPage(),
+                ],
+            ]);
+        }
+
+        $members = $this->loadMinistries($membersQuery->get());
 
         return response()->json([
             'success' => true,
@@ -47,38 +138,51 @@ class MemberController extends Controller
             'ministry_status' => ['nullable', Rule::in(['active', 'inactive', 'left'])],
         ]);
 
-        $member = Members::create([
-            'member_fname' => $validatedData['member_fname'],
-            'member_mname' => $validatedData['member_mname'] ?? null,
-            'member_lname' => $validatedData['member_lname'],
-            'gender' => $validatedData['gender'],
-            'birth_date' => $validatedData['birth_date'],
-            'email' => $validatedData['email'],
-            'phone_number' => $validatedData['phone_number'],
-            'street' => $validatedData['street'] ?? null,
-            'city' => $validatedData['city'] ?? null,
-            'province' => $validatedData['province'] ?? null,
-        ]);
-
-       
-
-        if (!empty($validatedData['ministry_id'])) {
-            $member->ministries()->attach($validatedData['ministry_id'], [
-                'date_joined' => today(),
-                'status' => $validatedData['ministry_status'] ?? 'active',
+        $memberId = DB::transaction(function () use ($validatedData) {
+            $memberId = DB::table('members')->insertGetId([
+                'member_fname' => $validatedData['member_fname'],
+                'member_mname' => $validatedData['member_mname'] ?? null,
+                'member_lname' => $validatedData['member_lname'],
+                'gender' => $validatedData['gender'],
+                'birth_date' => $validatedData['birth_date'],
+                'email' => $validatedData['email'],
+                'phone_number' => $validatedData['phone_number'],
+                'street' => $validatedData['street'] ?? null,
+                'city' => $validatedData['city'] ?? null,
+                'province' => $validatedData['province'] ?? null,
+                'created_at' => now(),
+                'updated_at' => now(),
             ]);
-        }
+
+            if (! empty($validatedData['ministry_id'])) {
+                DB::table('members_ministries')->insert([
+                    'member_id' => $memberId,
+                    'ministry_id' => $validatedData['ministry_id'],
+                    'date_joined' => today(),
+                    'status' => $validatedData['ministry_status'] ?? 'active',
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+
+            return $memberId;
+        });
+
+        $member = $this->loadMinistries(collect([
+            DB::table('members')->where('member_id', $memberId)->first(),
+        ]))->first();
 
         return response()->json([
             'success' => true,
             'message' => 'Member created successfully.',
-            'data' => $member->load(['ministries']),
+            'data' => $member,
         ], 201);
     }
 
     public function show($id)
     {
-        $member = Members::with(['ministries'])->findOrFail($id);
+        $member = DB::table('members')->where('member_id', $id)->firstOrFail();
+        $member = $this->loadMinistries(collect([$member]))->first();
 
         return response()->json([
             'success' => true,
@@ -88,7 +192,8 @@ class MemberController extends Controller
 
     public function update(Request $request, $id)
     {
-        $member = Members::findOrFail($id);
+        $existingPivotDate = DB::table('members_ministries')->where('member_id', $id)->value('date_joined');
+        DB::table('members')->where('member_id', $id)->firstOrFail();
 
         $validatedData = $request->validate([
             'member_fname' => 'required|string|max:255',
@@ -105,51 +210,57 @@ class MemberController extends Controller
             'ministry_status' => ['nullable', Rule::in(['active', 'inactive', 'left'])],
         ]);
 
-        $member->update([
-            'member_fname' => $validatedData['member_fname'],
-            'member_mname' => $validatedData['member_mname'] ?? null,
-            'member_lname' => $validatedData['member_lname'],
-            'gender' => $validatedData['gender'],
-            'birth_date' => $validatedData['birth_date'],
-            'email' => $validatedData['email'],
-            'phone_number' => $validatedData['phone_number'],
-            'street' => $validatedData['street'] ?? null,
-            'city' => $validatedData['city'] ?? null,
-            'province' => $validatedData['province'] ?? null,
-        ]);
+        DB::transaction(function () use ($validatedData, $id, $existingPivotDate) {
+            DB::table('members')
+                ->where('member_id', $id)
+                ->update([
+                    'member_fname' => $validatedData['member_fname'],
+                    'member_mname' => $validatedData['member_mname'] ?? null,
+                    'member_lname' => $validatedData['member_lname'],
+                    'gender' => $validatedData['gender'],
+                    'birth_date' => $validatedData['birth_date'],
+                    'email' => $validatedData['email'],
+                    'phone_number' => $validatedData['phone_number'],
+                    'street' => $validatedData['street'] ?? null,
+                    'city' => $validatedData['city'] ?? null,
+                    'province' => $validatedData['province'] ?? null,
+                    'updated_at' => now(),
+                ]);
 
-    
+            DB::table('members_ministries')->where('member_id', $id)->delete();
 
-        if (!empty($validatedData['ministry_id'])) {
-            $existingMinistry = $member->ministries()
-                ->where('ministries.ministry_id', $validatedData['ministry_id'])
-                ->first();
-
-            $member->ministries()->sync([
-                $validatedData['ministry_id'] => [
-                    'date_joined' => $existingMinistry?->pivot?->date_joined ?? today(),
+            if (! empty($validatedData['ministry_id'])) {
+                DB::table('members_ministries')->insert([
+                    'member_id' => $id,
+                    'ministry_id' => $validatedData['ministry_id'],
+                    'date_joined' => $existingPivotDate ?? today(),
                     'status' => $validatedData['ministry_status'] ?? 'active',
-                ],
-            ]);
-        } else {
-            $member->ministries()->detach();
-        }
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
+            }
+        });
+
+        $member = $this->loadMinistries(collect([
+            DB::table('members')->where('member_id', $id)->first(),
+        ]))->first();
 
         return response()->json([
             'success' => true,
             'message' => 'Member updated successfully.',
-            'data' => $member->load(['ministries']),
+            'data' => $member,
         ]);
     }
 
     public function destroy(Request $request, $id)
     {
-        $member = Members::findOrFail($id);
-
-        $member->update([
-            'is_archived' => true,
-            'archived_at' => now(),
-        ]);
+        DB::table('members')
+            ->where('member_id', $id)
+            ->update([
+                'is_archived' => true,
+                'archived_at' => now(),
+                'updated_at' => now(),
+            ]);
 
         return response()->json([
             'success' => true,
@@ -159,12 +270,13 @@ class MemberController extends Controller
 
     public function restore($id)
     {
-        $member = Members::findOrFail($id);
-
-        $member->update([
-            'is_archived' => false,
-            'archived_at' => null,
-        ]);
+        DB::table('members')
+            ->where('member_id', $id)
+            ->update([
+                'is_archived' => false,
+                'archived_at' => null,
+                'updated_at' => now(),
+            ]);
 
         return response()->json([
             'success' => true,

@@ -11,7 +11,7 @@ class AttendanceSession extends Model
 
     protected $fillable = [
         'event_id',
-        'admin_id',
+        'administrator_id',
         'attendance_name',
         'attendance_date',
         'time_in_start',
@@ -23,9 +23,9 @@ class AttendanceSession extends Model
         return $this->belongsTo(Event::class, 'event_id', 'event_id');
     }
 
-    public function admin()
+    public function administrator()
     {
-        return $this->belongsTo(Administrator::class, 'admin_id', 'admin_id');
+        return $this->belongsTo(Administrator::class, 'administrator_id', 'administrator_id');
     }
 
     public function attendances()

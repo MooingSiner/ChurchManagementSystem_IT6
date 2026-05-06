@@ -2,42 +2,39 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Members;
-use App\Models\Event;
-use App\Models\Attendance;
-use App\Models\AttendanceSession;
+use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
     public function dashboard()
     {
-        $totalMembers = Members::where('is_archived', false)->count();
-        $archivedMembers = Members::where('is_archived', true)->count();
-
-        $totalEvents = Event::count();
-
-        $attendanceRecords = Attendance::where('status', 'Present')
+        $totalMembers = DB::table('members')->where('is_archived', false)->count();
+        $archivedMembers = DB::table('members')->where('is_archived', true)->count();
+        $totalEvents = DB::table('vw_events_full')->count();
+        $attendanceRecords = DB::table('attendances')
+            ->where('status', 'Present')
             ->whereNotNull('attendance_session_id')
             ->count();
-
-        $totalAttendanceSessions = AttendanceSession::count();
-
+        $totalAttendanceSessions = DB::table('vw_attendance_session_summary')->count();
         $averageAttendance = $totalAttendanceSessions > 0
             ? round($attendanceRecords / $totalAttendanceSessions)
             : 0;
 
-        $recentAttendanceSessions = AttendanceSession::with('event')
-            ->withCount([
-            'attendances as attendance_count' => function ($query) {
-                $query->where('status', 'Present');
-            }
-        ])
-        ->orderByDesc('attendance_sessions.attendance_date')
-        ->orderByDesc('attendance_sessions.created_at')
-        ->select('attendance_sessions.*')
-        ->latest()
-        ->take(5)
-        ->get();
+        $recentAttendanceSessions = DB::table('vw_attendance_session_summary')
+            ->orderByDesc('attendance_date')
+            ->orderByDesc('created_at')
+            ->limit(5)
+            ->get()
+            ->map(function ($session) {
+                $session->event = (object) [
+                    'event_id' => $session->event_id,
+                    'event_name' => $session->event_name,
+                    'type_id' => $session->type_id,
+                ];
+                $session->attendance_count = $session->approved_attendance_count;
+
+                return $session;
+            });
 
         return view('dashboard', compact(
             'totalMembers',

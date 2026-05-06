@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Administrator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
@@ -23,7 +24,7 @@ class AuthController extends Controller
             'password' => 'required|string|max:255',
         ]);
 
-        $throttleKey = Str::transliterate(Str::lower($request->input('username')).'|'.$request->ip());
+        $throttleKey = Str::transliterate(Str::lower($request->input('username')) . '|' . $request->ip());
 
         if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
             $seconds = RateLimiter::availableIn($throttleKey);
@@ -33,9 +34,9 @@ class AuthController extends Controller
             ])->onlyInput('username');
         }
 
-        $admin = Administrator::where('username', $request->username)->first();
+        $administratorRow = DB::table('administrators')->where('username', $request->username)->first();
 
-        if (! $admin || ! Hash::check($request->password, $admin->password)) {
+        if (! $administratorRow || ! Hash::check($request->password, $administratorRow->password)) {
             RateLimiter::hit($throttleKey, 60);
 
             return back()->withErrors([
@@ -44,7 +45,7 @@ class AuthController extends Controller
         }
 
         RateLimiter::clear($throttleKey);
-        Auth::login($admin);
+        Auth::login(Administrator::findOrFail($administratorRow->administrator_id));
         $request->session()->regenerate();
 
         return redirect()->route('dashboard');

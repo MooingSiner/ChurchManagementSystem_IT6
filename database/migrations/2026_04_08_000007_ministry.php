@@ -13,9 +13,9 @@ return new class extends Migration
 {
     Schema::create('ministries', function (Blueprint $table) {
         $table->id('ministry_id');
-        $table->string('ministry_name');
+        $table->string('ministry_name')->unique();
 
-            $table->timestamps();
+        $table->timestamps();
     });
 }
 
@@ -24,6 +24,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        //
+        Schema::dropIfExists('ministries');
     }
 };

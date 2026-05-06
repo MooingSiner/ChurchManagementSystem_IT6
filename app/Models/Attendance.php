@@ -12,7 +12,7 @@ class Attendance extends Model
     protected $fillable = [
         'member_id',
         'event_id',
-        'admin_id',
+        'administrator_id',
         'attended_at',
         'status',
         'attendance_session_id',
@@ -36,8 +36,8 @@ class Attendance extends Model
         return $this->belongsTo(AttendanceSession::class, 'attendance_session_id', 'attendance_session_id');
     }
 
-    public function admin()
+    public function administrator()
     {
-        return $this->belongsTo(Administrator::class, 'admin_id', 'admin_id');
+        return $this->belongsTo(Administrator::class, 'administrator_id', 'administrator_id');
     }
 }

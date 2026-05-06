@@ -17,7 +17,7 @@ class Event extends Model
         'end_time',
         'description',
         'type_id',
-        'admin_id',
+        'administrator_id',
         'status',
     ];
 
@@ -26,9 +26,9 @@ class Event extends Model
         return $this->belongsTo(EventType::class, 'type_id', 'type_id');
     }
 
-    public function admin()
+    public function administrator()
     {
-        return $this->belongsTo(Administrator::class, 'admin_id', 'admin_id');
+        return $this->belongsTo(Administrator::class, 'administrator_id', 'administrator_id');
     }
 
     public function attendances()

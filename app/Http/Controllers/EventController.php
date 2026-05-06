@@ -2,15 +2,14 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Event;
-use App\Models\EventType;
+use Carbon\Carbon;
+use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
-use Carbon\Carbon;
-use Exception;
 
 class EventController extends Controller
 {
@@ -72,118 +71,194 @@ class EventController extends Controller
         return 'finished';
     }
 
+    protected function eventBaseQuery()
+    {
+        return DB::table('vw_events_full')
+            ->select(
+                'event_id',
+                'event_name',
+                'start_date',
+                'end_date',
+                'start_time',
+                'end_time',
+                'description',
+                DB::raw('computed_status as status'),
+                'type_id as related_type_id',
+                'type_name',
+                'administrator_id as related_administrator_id',
+                'administrator_username',
+                'administrator_role',
+                'administrator_role_label',
+                'created_at',
+                'updated_at'
+            );
+    }
+
+    protected function hydrateEventRelations($events)
+    {
+        return collect($events)->map(function ($event) {
+            $event->type = $event->related_type_id ? (object) [
+                'type_id' => $event->related_type_id,
+                'type_name' => $event->type_name,
+            ] : null;
+
+            $event->administrator = $event->related_administrator_id ? (object) [
+                'administrator_id' => $event->related_administrator_id,
+                'username' => $event->administrator_username,
+                'role' => $event->administrator_role,
+                'role_label' => $event->administrator_role_label,
+            ] : null;
+
+            return $event;
+        });
+    }
+
+    protected function filteredEvents(Request $request)
+    {
+        $search = trim((string) $request->query('event_search', ''));
+        $typeId = $request->query('type_id');
+        $status = $request->query('status');
+        $date = $request->query('event_date');
+
+        return $this->eventBaseQuery()
+            ->when($search !== '', function ($query) use ($search) {
+                $query->where(function ($query) use ($search) {
+                    $query->where('event_name', 'like', "%{$search}%")
+                        ->orWhere('description', 'like', "%{$search}%")
+                        ->orWhere('type_name', 'like', "%{$search}%");
+                });
+            })
+            ->when($typeId, function ($query) use ($typeId) {
+                $query->where('type_id', $typeId);
+            })
+            ->when($status, function ($query) use ($status) {
+                $query->where('computed_status', $status);
+            })
+            ->when($date, function ($query) use ($date) {
+                $query->whereDate('start_date', '<=', $date)
+                    ->whereDate('end_date', '>=', $date);
+            });
+    }
+
+    protected function typeOptions()
+    {
+        return DB::table('types')->orderBy('type_name')->get();
+    }
+
     public function event()
     {
-        $events = Event::with(['type', 'admin'])
-            ->latest()
+        return $this->index(request());
+    }
+
+    public function index(Request $request)
+    {
+        $events = $this->filteredEvents($request)
+            ->orderByDesc('created_at')
             ->paginate(6)
             ->withQueryString();
-        $types = EventType::all();
+        $events->setCollection($this->hydrateEventRelations($events->getCollection()));
+
+        $types = $this->typeOptions();
 
         return view('events', compact('events', 'types'));
     }
 
-  public function index()
-{
-    Event::all()->each(function ($event) {
-        $now = Carbon::now('Asia/Manila');
-
-        $startDateTime = Carbon::parse($event->start_date . ' ' . $event->start_time, 'Asia/Manila');
-        $endDateTime = Carbon::parse($event->end_date . ' ' . $event->end_time, 'Asia/Manila');
-
-        if ($now->lt($startDateTime)) {
-            $event->update(['status' => 'upcoming']);
-        } elseif ($now->between($startDateTime, $endDateTime)) {
-            $event->update(['status' => 'ongoing']);
-        } else {
-            $event->update(['status' => 'finished']);
-        }
-    });
-
-    $events = Event::with(['type', 'admin'])
-        ->latest()
-        ->paginate(6)
-        ->withQueryString();
-    $types = EventType::all();
-
-    return view('events', compact('events', 'types'));
-}
     public function create()
     {
-        $types = EventType::all();
+        $types = $this->typeOptions();
         return view('events.create', compact('types'));
     }
 
-   public function store(Request $request)
-{
-    try {
-        $validatedData = $this->validateEvent($request);
+    public function store(Request $request)
+    {
+        try {
+            $validatedData = $this->validateEvent($request);
 
-        Event::create([
-            'event_name' => $validatedData['event_name'],
-            'type_id' => $validatedData['type_id'],
-            'start_date' => $validatedData['start_date'],
-            'end_date' => $validatedData['end_date'],
-            'start_time' => $validatedData['start_time'],
-            'end_time' => $validatedData['end_time'],
-            'description' => $validatedData['description'] ?? null,
-            'admin_id' => Auth::user()->admin_id,
-            'status' => $this->resolveEventStatus($validatedData),
-        ]);
+            DB::select('CALL sp_create_event(?, ?, ?, ?, ?, ?, ?, ?)', [
+                $validatedData['event_name'],
+                $validatedData['type_id'],
+                $validatedData['start_date'],
+                $validatedData['end_date'],
+                $validatedData['start_time'],
+                $validatedData['end_time'],
+                $validatedData['description'] ?? null,
+                Auth::user()->administrator_id,
+            ]);
 
-        return redirect()->back()->with('success', 'Event created successfully');
-
-    } catch (ValidationException $e) {
-        return redirect()->back()
-            ->withErrors($e->errors())
-            ->withInput()
-            ->with('error', 'Please fix the highlighted event details and try again.');
-    } catch (Exception $e) {
-        return redirect()->back()
-            ->withInput()
-            ->with('error', $this->eventErrorMessage($e, 'create'));
+            return redirect()->back()->with('success', 'Event created successfully');
+        } catch (ValidationException $e) {
+            return redirect()->back()
+                ->withErrors($e->errors())
+                ->withInput()
+                ->with('error', 'Please fix the highlighted event details and try again.');
+        } catch (Exception $e) {
+            return redirect()->back()
+                ->withInput()
+                ->with('error', $this->eventErrorMessage($e, 'create'));
+        }
     }
-}
+
+    protected function eventWithRelationsOrFail($id)
+    {
+        $event = $this->eventBaseQuery()->where('event_id', $id)->first();
+
+        if (! $event) {
+            throw new ModelNotFoundException();
+        }
+
+        return $this->hydrateEventRelations([$event])->first();
+    }
 
     public function show($id)
     {
-        $event = Event::with(['type', 'admin', 'attendances'])->findOrFail($id);
+        $event = $this->eventWithRelationsOrFail($id);
+        $event->attendances = DB::table('attendances')->where('event_id', $id)->get();
+
         return view('events.show', compact('event'));
     }
 
     public function edit($id)
     {
-        $event = Event::findOrFail($id);
-        $types = EventType::all();
+        $event = DB::table('vw_events_full')->where('event_id', $id)->first();
+
+        if (! $event) {
+            throw new ModelNotFoundException();
+        }
+
+        $types = $this->typeOptions();
 
         return view('events.edit', compact('event', 'types'));
     }
 
     public function update(Request $request, $id)
     {
-        try{
-        $event = Event::findOrFail($id);
+        try {
+            $event = DB::table('vw_events_full')->where('event_id', $id)->first();
 
-        $validatedData = $this->validateEvent($request);
+            if (! $event) {
+                throw new ModelNotFoundException();
+            }
 
-        $event->update([
-            'event_name' => $validatedData['event_name'],
-            'type_id' => $validatedData['type_id'],
-            'start_date' => $validatedData['start_date'],
-            'end_date' => $validatedData['end_date'],
-            'start_time' => $validatedData['start_time'],
-            'end_time' => $validatedData['end_time'],
-            'description' => $validatedData['description'] ?? null,
-            'status' => $this->resolveEventStatus($validatedData),
-        ]);
+            $validatedData = $this->validateEvent($request);
 
-        return redirect()->back()->with('success', 'Event Updated successfully');
+            DB::statement('CALL sp_update_event(?, ?, ?, ?, ?, ?, ?, ?)', [
+                $id,
+                $validatedData['event_name'],
+                $validatedData['type_id'],
+                $validatedData['start_date'],
+                $validatedData['end_date'],
+                $validatedData['start_time'],
+                $validatedData['end_time'],
+                $validatedData['description'] ?? null,
+            ]);
+
+            return redirect()->back()->with('success', 'Event Updated successfully');
         } catch (ValidationException $e) {
             return redirect()->back()
                 ->withErrors($e->errors())
                 ->withInput()
                 ->with('error', 'Please fix the highlighted event details and try again.');
-        }catch(Exception $e) {
+        } catch (Exception $e) {
             return redirect()->back()
                 ->withInput()
                 ->with('error', $this->eventErrorMessage($e, 'update'));
@@ -192,44 +267,49 @@ class EventController extends Controller
 
     public function destroy($id)
     {
-        try{
-        $event = Event::findOrFail($id);
-        $event->delete();
+        try {
+            $deleted = DB::table('events')->where('event_id', $id)->delete();
 
-        return redirect()->back()->with('error', 'Event deleted successfully');
-        }catch(Exception $e) {
+            if (! $deleted) {
+                throw new ModelNotFoundException();
+            }
+
+            return redirect()->back()->with('error', 'Event deleted successfully');
+        } catch (Exception $e) {
             return redirect()->back()
                 ->withInput()
                 ->with('error', $this->eventErrorMessage($e, 'delete'));
         }
-
     }
+
     public function finish($id)
-{
-    try{
-    $event = Event::findOrFail($id);
+    {
+        try {
+            $event = DB::table('vw_events_full')->where('event_id', $id)->first();
 
-    $now = Carbon::now('Asia/Manila');
-    $startDateTime = Carbon::parse($event->start_date . ' ' . $event->start_time, 'Asia/Manila');
-    $endDateTime = Carbon::parse($event->end_date . ' ' . $event->end_time, 'Asia/Manila');
+            if (! $event) {
+                throw new ModelNotFoundException();
+            }
 
-    if ($event->status === 'finished' || $now->gte($endDateTime)) {
-        return redirect()->back()->with('error', 'This event is already finished.');
+            $now = Carbon::now('Asia/Manila');
+            $startDateTime = Carbon::parse($event->start_date . ' ' . $event->start_time, 'Asia/Manila');
+            $endDateTime = Carbon::parse($event->end_date . ' ' . $event->end_time, 'Asia/Manila');
+
+            if ($event->status === 'finished' || $now->gte($endDateTime)) {
+                return redirect()->back()->with('error', 'This event is already finished.');
+            }
+
+            if ($now->lt($startDateTime)) {
+                return redirect()->back()->with('error', 'This event has not started yet. Wait until the start time before marking it as completed.');
+            }
+
+            DB::statement('CALL sp_finish_event(?)', [$id]);
+
+            return redirect()->back()->with('success', 'Event marked as ended');
+        } catch (Exception $e) {
+            return redirect()->back()
+                ->withInput()
+                ->with('error', $this->eventErrorMessage($e, 'finish'));
+        }
     }
-
-    if ($now->lt($startDateTime)) {
-        return redirect()->back()->with('error', 'This event has not started yet. Wait until the start time before marking it as completed.');
-    }
-
-    $event->update([
-        'status' => 'finished'
-    ]);
-
-    return redirect()->back()->with('success', 'Event marked as ended');
-} catch(Exception $e) {
-    return redirect()->back()
-        ->withInput()
-        ->with('error', $this->eventErrorMessage($e, 'finish'));
-}
-}
 }

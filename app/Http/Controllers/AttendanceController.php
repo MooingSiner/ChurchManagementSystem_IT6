@@ -2,17 +2,14 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Attendance;
-use App\Models\AttendanceSession;
-use App\Models\Event;
-use App\Models\Members;
+use Carbon\Carbon;
+use Exception;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
-use Carbon\Carbon;
-use Exception;
 
 class AttendanceController extends Controller
 {
@@ -56,6 +53,11 @@ class AttendanceController extends Controller
         }
     }
 
+    protected function eventRow($eventId)
+    {
+        return DB::table('events')->where('event_id', $eventId)->first();
+    }
+
     protected function validateSessionData(Request $request): array
     {
         $request->merge([
@@ -65,7 +67,7 @@ class AttendanceController extends Controller
         ]);
 
         $eventId = $request->input('event_id');
-        $event = $eventId ? Event::find($eventId) : null;
+        $event = $eventId ? $this->eventRow($eventId) : null;
 
         $validator = validator($request->all(), [
             'attendance_name' => 'required|string|max:255',
@@ -96,7 +98,7 @@ class AttendanceController extends Controller
         return $validator->validate();
     }
 
-    protected function sessionOpeningDateTime(AttendanceSession $session): Carbon
+    protected function sessionOpeningDateTime(object $session): Carbon
     {
         $event = $session->event;
 
@@ -106,7 +108,7 @@ class AttendanceController extends Controller
         );
     }
 
-    protected function sessionClosingDateTime(AttendanceSession $session): Carbon
+    protected function sessionClosingDateTime(object $session): Carbon
     {
         $event = $session->event;
         $closingDate = $session->attendance_date ?? $event?->start_date ?? now()->toDateString();
@@ -120,7 +122,7 @@ class AttendanceController extends Controller
         );
     }
 
-    protected function sessionAvailabilityState(AttendanceSession $session): string
+    protected function sessionAvailabilityState(object $session): string
     {
         $now = Carbon::now('Asia/Manila');
 
@@ -160,32 +162,164 @@ class AttendanceController extends Controller
         };
     }
 
+    protected function eventsForAttendance()
+    {
+        return DB::table('vw_events_full')
+            ->select('*', DB::raw('type_id as related_type_id'), DB::raw('computed_status as status'))
+            ->orderByDesc('start_date')
+            ->get()
+            ->map(function ($event) {
+                $event->type = $event->related_type_id ? (object) [
+                    'type_id' => $event->related_type_id,
+                    'type_name' => $event->type_name,
+                ] : null;
+
+                return $event;
+            });
+    }
+
+    protected function sessionQuery()
+    {
+        return DB::table('vw_attendance_session_summary')
+            ->select(
+                'attendance_session_id',
+                'event_id',
+                'administrator_id',
+                'attendance_name',
+                'attendance_date',
+                'time_in_start',
+                'time_out_end',
+                'created_at',
+                'updated_at',
+                'event_name',
+                'start_date',
+                'end_date',
+                'start_time',
+                'end_time',
+                'type_id as related_type_id',
+                'type_name',
+                'availability_status',
+                'approved_attendance_count',
+                'pending_attendance_count',
+                'total_attendance_count'
+            );
+    }
+
+    protected function hydrateSessions($sessions)
+    {
+        return collect($sessions)->map(function ($session) {
+            $session->event = (object) [
+                'event_id' => $session->event_id,
+                'event_name' => $session->event_name,
+                'start_date' => $session->start_date,
+                'end_date' => $session->end_date,
+                'start_time' => $session->start_time,
+                'end_time' => $session->end_time,
+                'type' => $session->related_type_id ? (object) [
+                    'type_id' => $session->related_type_id,
+                    'type_name' => $session->type_name,
+                ] : null,
+            ];
+
+            return $session;
+        });
+    }
+
+    protected function sessionOrFail($id): object
+    {
+        $session = $this->sessionQuery()
+            ->where('attendance_session_id', $id)
+            ->first();
+
+        if (! $session) {
+            throw new ModelNotFoundException();
+        }
+
+        return $this->hydrateSessions([$session])->first();
+    }
+
+    protected function attendanceWithMembers(int $sessionId, string $status)
+    {
+        return DB::table('vw_attendance_records_full')
+            ->where('attendance_session_id', $sessionId)
+            ->where('status', $status)
+            ->select(
+                'attendance_id',
+                'member_id',
+                'event_id',
+                'administrator_id',
+                'attendance_session_id',
+                'attended_at',
+                'time_in',
+                'time_out',
+                'status',
+                'member_fname',
+                'member_mname',
+                'member_lname',
+                'email',
+                'phone_number'
+            )
+            ->orderByDesc('attended_at')
+            ->get()
+            ->map(function ($attendance) {
+                $attendance->member = (object) [
+                    'member_id' => $attendance->member_id,
+                    'member_fname' => $attendance->member_fname,
+                    'member_mname' => $attendance->member_mname,
+                    'member_lname' => $attendance->member_lname,
+                    'email' => $attendance->email,
+                    'phone_number' => $attendance->phone_number,
+                ];
+
+                return $attendance;
+            });
+    }
+
     public function attendance(Request $request)
     {
-        $events = Event::with('type')
-            ->orderBy('start_date', 'desc')
-            ->get();
+        $events = $this->eventsForAttendance();
 
-        $attendanceSessions = AttendanceSession::with(['event.type'])
-            ->withCount([
-                'attendances as approved_attendance_count' => function ($query) {
-                    $query->where('status', 'Present');
-                },
-                'attendances as pending_attendance_count' => function ($query) {
-                    $query->where('status', 'Pending');
-                },
-            ])
-            ->latest()
+        $attendanceSessions = $this->sessionQuery()
+            ->when(trim((string) $request->query('attendance_search', '')) !== '', function ($query) use ($request) {
+                $search = trim((string) $request->query('attendance_search'));
+
+                $query->where(function ($query) use ($search) {
+                    $query->where('attendance_name', 'like', "%{$search}%")
+                        ->orWhereDate('attendance_date', $search)
+                        ->orWhere('event_name', 'like', "%{$search}%")
+                        ->orWhere('type_name', 'like', "%{$search}%");
+                });
+            })
+            ->when($request->query('event_id'), function ($query, $eventId) {
+                $query->where('event_id', $eventId);
+            })
+            ->when($request->query('type_name'), function ($query, $typeName) {
+                $query->where('type_name', $typeName);
+            })
+            ->when($request->query('attendance_date'), function ($query, $date) {
+                $query->whereDate('attendance_date', $date);
+            })
+            ->orderByDesc('created_at')
             ->paginate(4, ['*'], 'sessions_page')
             ->withQueryString();
+        $attendanceSessions->setCollection($this->hydrateSessions($attendanceSessions->getCollection()));
 
-        $attendanceTypes = AttendanceSession::with('event.type')
-            ->get()
+        $attendanceTypes = $attendanceSessions->getCollection()
             ->pluck('event.type.type_name')
             ->filter()
             ->unique()
             ->sort()
             ->values();
+
+        if ($attendanceTypes->isEmpty()) {
+            $attendanceTypes = $this->sessionQuery()
+                ->get()
+                ->pluck('type_name')
+                ->filter()
+                ->unique()
+                ->sort()
+                ->values();
+        }
 
         $selectedSessionId = $request->attendance_session_id;
         $isMarkingAttendance = false;
@@ -197,8 +331,8 @@ class AttendanceController extends Controller
         $availableMembers = collect();
 
         if ($selectedSessionId) {
-            $selectedSession = AttendanceSession::with(['event.type'])->find($selectedSessionId);
-            $selectedEvent = $selectedSession?->event;
+            $selectedSession = $this->sessionOrFail($selectedSessionId);
+            $selectedEvent = $selectedSession->event;
             $isMarkingAttendance = $request->view === 'mark' && $selectedSession;
 
             if ($isMarkingAttendance && $this->sessionAvailabilityState($selectedSession) !== 'open') {
@@ -211,22 +345,15 @@ class AttendanceController extends Controller
                     ->with('error', $message);
             }
 
-            $approvedAttendances = Attendance::with('member')
-                ->where('attendance_session_id', $selectedSessionId)
-                ->where('status', 'Present')
-                ->latest('attended_at')
-                ->get();
+            $approvedAttendances = $this->attendanceWithMembers((int) $selectedSessionId, 'Present');
+            $pendingAttendances = $this->attendanceWithMembers((int) $selectedSessionId, 'Pending');
 
-            $pendingAttendances = Attendance::with('member')
+            $alreadyAddedMemberIds = DB::table('vw_attendance_records_full')
                 ->where('attendance_session_id', $selectedSessionId)
-                ->where('status', 'Pending')
-                ->latest('attended_at')
-                ->get();
-
-            $alreadyAddedMemberIds = Attendance::where('attendance_session_id', $selectedSessionId)
                 ->pluck('member_id');
 
-            $availableMembers = Members::where('is_archived', false)
+            $availableMembers = DB::table('members')
+                ->where('is_archived', false)
                 ->whereNotIn('member_id', $alreadyAddedMemberIds)
                 ->get();
         }
@@ -259,19 +386,24 @@ class AttendanceController extends Controller
                 'event_id' => 'required|exists:events,event_id',
             ]);
 
-            $event = Event::findOrFail($request->event_id);
+            $event = $this->eventRow($request->event_id);
 
-            $session = AttendanceSession::create([
-                'event_id' => $event->event_id,
-                'admin_id' => Auth::id(),
-                'attendance_name' => $validated['attendance_name'],
-                'attendance_date' => $validated['attendance_date'],
-                'time_in_start' => $validated['time_in_start'] ?? null,
-                'time_out_end' => $validated['time_out_end'] ?? null,
+            if (! $event) {
+                throw new ModelNotFoundException();
+            }
+
+            $result = DB::select('CALL sp_create_attendance_session(?, ?, ?, ?, ?, ?)', [
+                $event->event_id,
+                Auth::id(),
+                $validated['attendance_name'],
+                $validated['attendance_date'],
+                $validated['time_in_start'] ?? null,
+                $validated['time_out_end'] ?? null,
             ]);
+            $sessionId = $result[0]->attendance_session_id ?? null;
 
             return redirect()
-                ->route('attendance', ['attendance_session_id' => $session->attendance_session_id])
+                ->route('attendance', ['attendance_session_id' => $sessionId])
                 ->with('success', 'Attendance created successfully.');
         } catch (Exception $e) {
             return redirect()->back()
@@ -283,15 +415,16 @@ class AttendanceController extends Controller
     public function updateSession(Request $request, $id)
     {
         try {
-            $session = AttendanceSession::with('event')->findOrFail($id);
+            $session = $this->sessionOrFail($id);
             $request->merge(['event_id' => $session->event_id]);
             $validated = $this->validateSessionData($request);
 
-            $session->update([
-                'attendance_name' => $validated['attendance_name'],
-                'attendance_date' => $validated['attendance_date'],
-                'time_in_start' => $validated['time_in_start'] ?? null,
-                'time_out_end' => $validated['time_out_end'] ?? null,
+            DB::statement('CALL sp_update_attendance_session(?, ?, ?, ?, ?)', [
+                $id,
+                $validated['attendance_name'],
+                $validated['attendance_date'],
+                $validated['time_in_start'] ?? null,
+                $validated['time_out_end'] ?? null,
             ]);
 
             return redirect()->route('attendance')->with('success', 'Attendance session updated successfully.');
@@ -310,13 +443,19 @@ class AttendanceController extends Controller
     public function destroySession($id)
     {
         try {
-            $session = AttendanceSession::withCount('attendances')->findOrFail($id);
+            $session = DB::table('vw_attendance_session_summary')
+                ->where('attendance_session_id', $id)
+                ->first();
 
-            if ($session->attendances_count > 0) {
+            if (! $session) {
+                throw new ModelNotFoundException();
+            }
+
+            if ($session->total_attendance_count > 0) {
                 return redirect()->back()->with('error', 'This attendance session already has attendance records. Remove those records first before deleting the session.');
             }
 
-            $session->delete();
+            DB::table('attendance_sessions')->where('attendance_session_id', $id)->delete();
 
             return redirect()->route('attendance')->with('success', 'Attendance session deleted successfully.');
         } catch (Exception $e) {
@@ -328,41 +467,41 @@ class AttendanceController extends Controller
 
     public function addManual(Request $request)
     {
-        try{
-        $validated = $request->validate([
-            'attendance_session_id' => 'required|exists:attendance_sessions,attendance_session_id',
-            'member_id' => 'required|exists:members,member_id',
-        ]);
+        try {
+            $validated = $request->validate([
+                'attendance_session_id' => 'required|exists:attendance_sessions,attendance_session_id',
+                'member_id' => 'required|exists:members,member_id',
+            ]);
 
-        $session = AttendanceSession::findOrFail($validated['attendance_session_id']);
-        $member = Members::where('member_id', $validated['member_id'])
-            ->where('is_archived', false)
-            ->firstOrFail();
+            $session = $this->sessionOrFail($validated['attendance_session_id']);
+            $member = DB::table('members')
+                ->where('member_id', $validated['member_id'])
+                ->where('is_archived', false)
+                ->first();
 
-        $availability = $this->sessionAvailabilityState($session->loadMissing('event'));
+            if (! $member) {
+                throw new ModelNotFoundException();
+            }
 
-        if ($availability !== 'open') {
-            return redirect()->back()->with('error', $availability === 'closed'
-                ? 'This attendance session has already ended. Attendance can no longer be added.'
-                : 'This attendance session is not open yet. You can add attendance once the event begins.');
-        }
+            $availability = $this->sessionAvailabilityState($session);
 
-        Attendance::updateOrCreate(
-            [
-                'attendance_session_id' => $session->attendance_session_id,
-                'member_id' => $member->member_id,
-            ],
-            [
-                'event_id' => $session->event_id,
-                'admin_id' => Auth::id(),
-                'attended_at' => now(),
-                'time_in' => now(),
-                'status' => 'Present',
-            ]
-        );
+            if ($availability !== 'open') {
+                return redirect()->back()->with('error', $availability === 'closed'
+                    ? 'This attendance session has already ended. Attendance can no longer be added.'
+                    : 'This attendance session is not open yet. You can add attendance once the event begins.');
+            }
 
-        return redirect()->back()->with('success', 'Attendance added successfully.');
-        }catch(Exception $e) {
+            DB::select('CALL sp_save_attendance_record(?, ?, ?, ?, ?, ?)', [
+                $session->attendance_session_id,
+                $member->member_id,
+                $session->event_id,
+                Auth::id(),
+                'Present',
+                1,
+            ]);
+
+            return redirect()->back()->with('success', 'Attendance added successfully.');
+        } catch (Exception $e) {
             return redirect()->back()
                 ->withInput()
                 ->with('error', $this->attendanceErrorMessage($e, 'manual'));
@@ -371,11 +510,14 @@ class AttendanceController extends Controller
 
     public function approve($id)
     {
-        try{
-        $attendance = Attendance::findOrFail($id);
-        $session = $attendance->attendanceSession()->with('event')->first();
+        try {
+            $attendance = DB::table('attendances')->where('attendance_id', $id)->first();
 
-        if ($session) {
+            if (! $attendance) {
+                throw new ModelNotFoundException();
+            }
+
+            $session = $this->sessionOrFail($attendance->attendance_session_id);
             $availability = $this->sessionAvailabilityState($session);
 
             if ($availability !== 'open') {
@@ -383,50 +525,59 @@ class AttendanceController extends Controller
                     ? 'This attendance session has already ended. Approval is no longer available here.'
                     : 'This attendance session is not open yet. Approval is available once the event begins.');
             }
+
+            DB::select('CALL sp_save_attendance_record(?, ?, ?, ?, ?, ?)', [
+                $attendance->attendance_session_id,
+                $attendance->member_id,
+                $attendance->event_id,
+                Auth::id(),
+                'Present',
+                0,
+            ]);
+
+            return redirect()->back()->with('success', 'Attendance approved.');
+        } catch (Exception $e) {
+            return redirect()->back()
+                ->withInput()
+                ->with('error', $this->attendanceErrorMessage($e, 'approve'));
         }
-
-        $attendance->update([
-            'status' => 'Present',
-            'admin_id' => Auth::id(),
-            'attended_at' => now(),
-        ]);
-
-        return redirect()->back()->with('success', 'Attendance approved.');
-        }catch(Exception $e) {
-        return redirect()->back()
-            ->withInput()
-            ->with('error', $this->attendanceErrorMessage($e, 'approve'));
-    }
     }
 
     public function reject($id)
     {
-        try{
-        $attendance = Attendance::findOrFail($id);
-        $eventId = $attendance->event_id;
-        $attendance->delete();
+        try {
+            $deleted = DB::table('attendances')->where('attendance_id', $id)->exists();
 
-        return redirect()->back()->with('error', 'Attendance rejected.');
-        }catch
-        (Exception $e) {
-        return redirect()->back()
-            ->withInput()
-            ->with('error', $this->attendanceErrorMessage($e, 'reject'));
-    }
+            if (! $deleted) {
+                throw new ModelNotFoundException();
+            }
+
+            DB::statement('CALL sp_delete_attendance_record(?)', [$id]);
+
+            return redirect()->back()->with('error', 'Attendance rejected.');
+        } catch (Exception $e) {
+            return redirect()->back()
+                ->withInput()
+                ->with('error', $this->attendanceErrorMessage($e, 'reject'));
+        }
     }
 
     public function destroy($id)
     {
-        try{
-        $attendance = Attendance::findOrFail($id);
-        $eventId = $attendance->event_id;
-        $attendance->delete();
+        try {
+            $deleted = DB::table('attendances')->where('attendance_id', $id)->exists();
 
-        return redirect()->back()->with('error', 'Attendance removed.');
-        }catch(Exception $e) {
-        return redirect()->back()
-            ->withInput()
-            ->with('error', $this->attendanceErrorMessage($e, 'remove'));
-    }
+            if (! $deleted) {
+                throw new ModelNotFoundException();
+            }
+
+            DB::statement('CALL sp_delete_attendance_record(?)', [$id]);
+
+            return redirect()->back()->with('error', 'Attendance removed.');
+        } catch (Exception $e) {
+            return redirect()->back()
+                ->withInput()
+                ->with('error', $this->attendanceErrorMessage($e, 'remove'));
+        }
     }
 }

@@ -2,28 +2,22 @@
 
 namespace App\Providers;
 
-use App\Models\Attendance;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Facades\URL;
 use Illuminate\Support\Facades\View;
+use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
 {
-    /**
-     * Register any application services.
-     */
     public function register(): void
     {
         //
     }
 
-    /**
-     * Bootstrap any application services.
-     */
     public function boot(): void
     {
         if (env('APP_ENV') === 'production') {
@@ -44,7 +38,7 @@ class AppServiceProvider extends ServiceProvider
             'report',
         ], function ($view) {
             $view->with('navigationBadges', [
-                'attendance_pending' => Attendance::where('status', 'Pending')->count(),
+                'attendance_pending' => DB::table('attendances')->where('status', 'Pending')->count(),
             ]);
 
             $view->with('currentRoleLabel', Auth::user()?->role_label);

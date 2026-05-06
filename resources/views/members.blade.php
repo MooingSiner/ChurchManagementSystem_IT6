@@ -166,7 +166,7 @@
     </button>
 </div>
 
-<div class="grid grid-cols-1 gap-3 lg:grid-cols-4">
+<form method="GET" action="{{ route('members.index') }}" class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
     <div class="relative lg:col-span-2">
         <svg class="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
@@ -174,23 +174,32 @@
         <input
             type="text"
             id="memberSearch"
+            name="member_search"
+            value="{{ request('member_search') }}"
             placeholder="Search name, email, phone, or address..."
             class="w-full pl-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-            onkeyup="filterMemberCards()"
         />
     </div>
-    <select id="memberMinistryFilter" onchange="filterMemberCards()" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+    <select id="memberMinistryFilter" name="ministry_id" onchange="this.form.submit()" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
         <option value="">All Ministries</option>
         @foreach($ministries as $ministry)
-            <option value="{{ strtolower($ministry->ministry_name) }}">{{ $ministry->ministry_name }}</option>
+            <option value="{{ $ministry->ministry_id }}" @selected((string) request('ministry_id') === (string) $ministry->ministry_id)>{{ $ministry->ministry_name }}</option>
         @endforeach
     </select>
-    <select id="memberGenderFilter" onchange="filterMemberCards()" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+    <select id="memberGenderFilter" name="gender" onchange="this.form.submit()" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
         <option value="">All Genders</option>
-        <option value="male">Male</option>
-        <option value="female">Female</option>
+        <option value="Male" @selected(request('gender') === 'Male')>Male</option>
+        <option value="Female" @selected(request('gender') === 'Female')>Female</option>
     </select>
-</div>
+    <div class="grid grid-cols-2 gap-2 sm:col-span-2 xl:col-span-1">
+        <button type="submit" class="px-4 py-2 rounded-md text-sm font-medium text-[#F2F8FF] bg-[#030213] hover:bg-[#0a0920]">
+            Search
+        </button>
+        <a href="{{ route('members.index') }}" class="px-4 py-2 rounded-md border border-gray-300 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 text-center">
+            Clear
+        </a>
+    </div>
+</form>
 
 <!-- Approved Members Section -->
 <div id="approvedSection">
@@ -220,7 +229,7 @@
                 <div class="member-card bg-white rounded-lg shadow border w-full"
                      data-search="{{ strtolower($member->member_fname . ' ' . $member->member_mname . ' ' . $member->member_lname . ' ' . $member->gender . ' ' . $member->birth_date . ' ' . $member->email . ' ' . $member->phone_number . ' ' . $member->street . ' ' . $member->city . ' ' . $member->province . ' ' . $member->ministries->pluck('ministry_name')->join(' ')) }}"
                      data-gender="{{ strtolower($member->gender) }}"
-                     data-ministry="{{ strtolower($member->ministries->pluck('ministry_name')->join('|')) }}">
+                     data-ministry="{{ $member->ministries->pluck('ministry_id')->join('|') }}">
                     <div class="px-6 py-4 border-b">
                         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                             <div>
@@ -356,7 +365,7 @@
                 <div class="member-card bg-white rounded-lg shadow border w-full opacity-80"
                      data-search="{{ strtolower($member->member_fname . ' ' . $member->member_mname . ' ' . $member->member_lname . ' ' . $member->gender . ' ' . $member->birth_date . ' ' . $member->email . ' ' . $member->phone_number . ' ' . $member->street . ' ' . $member->city . ' ' . $member->province . ' ' . $member->ministries->pluck('ministry_name')->join(' ')) }}"
                      data-gender="{{ strtolower($member->gender) }}"
-                     data-ministry="{{ strtolower($member->ministries->pluck('ministry_name')->join('|')) }}">
+                     data-ministry="{{ $member->ministries->pluck('ministry_id')->join('|') }}">
                     <div class="px-6 py-4 border-b">
                         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                             <div>

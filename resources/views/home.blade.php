@@ -790,7 +790,7 @@ async function submitScannedMember(decodedText) {
             const memberName = data?.data?.member
                 ? `${data.data.member.member_fname} ${data.data.member.member_lname}`
                 : `Member ${memberId}`;
-            showToast(`${memberName} marked present. Waiting for admin approval.`, 'success');
+            showToast(`${memberName} marked present. Waiting for administrator approval.`, 'success');
             status.textContent = 'Point the camera at a member QR code.';
         } else {
             showToast(data.error ?? 'Something went wrong.', 'error');

@@ -21,7 +21,7 @@ return new class extends Migration
         $table->text('description')->nullable();
         $table->enum('status', ['upcoming', 'ongoing', 'finished'])->default('upcoming');
         $table->unsignedBigInteger('type_id');
-        $table->unsignedBigInteger('admin_id');
+        $table->unsignedBigInteger('administrator_id')->nullable();
         $table->timestamps();
 
         $table->foreign('type_id')
@@ -29,10 +29,10 @@ return new class extends Migration
               ->on('types')
               ->onDelete('cascade');
 
-        $table->foreign('admin_id')
-              ->references('admin_id')
-              ->on('admins')
-              ->onDelete('cascade');
+        $table->foreign('administrator_id')
+              ->references('administrator_id')
+              ->on('administrators')
+              ->onDelete('set null');
     });
 }
 

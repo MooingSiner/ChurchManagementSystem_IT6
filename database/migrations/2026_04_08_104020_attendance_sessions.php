@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('attendance_sessions', function (Blueprint $table) {
             $table->id('attendance_session_id');
             $table->unsignedBigInteger('event_id');
-            $table->unsignedBigInteger('admin_id')->nullable();
+            $table->unsignedBigInteger('administrator_id')->nullable();
 
             $table->string('attendance_name');
             $table->date('attendance_date');
@@ -28,9 +28,9 @@ return new class extends Migration
                   ->on('events')
                   ->onDelete('cascade');
 
-            $table->foreign('admin_id')
-                  ->references('admin_id')
-                  ->on('admins')
+            $table->foreign('administrator_id')
+                  ->references('administrator_id')
+                  ->on('administrators')
                   ->onDelete('set null');
         });
 

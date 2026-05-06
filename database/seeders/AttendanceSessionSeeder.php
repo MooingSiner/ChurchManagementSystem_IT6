@@ -15,7 +15,7 @@ class AttendanceSessionSeeder extends Seeder
             [
                 'attendance_session_id' => 7,
                 'event_id' => 1,
-                'admin_id' => 1,
+                'administrator_id' => 1,
                 'attendance_name' => 'Morning Attendance',
                 'attendance_date' => '2026-05-05',
                 'time_in_start' => '08:00:00',
@@ -26,7 +26,7 @@ class AttendanceSessionSeeder extends Seeder
             [
                 'attendance_session_id' => 8,
                 'event_id' => 2,
-                'admin_id' => 1,
+                'administrator_id' => 1,
                 'attendance_name' => 'Evening Attendance',
                 'attendance_date' => '2026-05-07',
                 'time_in_start' => '18:00:00',
@@ -37,7 +37,7 @@ class AttendanceSessionSeeder extends Seeder
             [
                 'attendance_session_id' => 9,
                 'event_id' => 3,
-                'admin_id' => 2,
+                'administrator_id' => 2,
                 'attendance_name' => 'Afternoon Attendance',
                 'attendance_date' => '2026-05-10',
                 'time_in_start' => '14:00:00',
@@ -47,7 +47,7 @@ class AttendanceSessionSeeder extends Seeder
             ],
         ], ['attendance_session_id'], [
             'event_id',
-            'admin_id',
+            'administrator_id',
             'attendance_name',
             'attendance_date',
             'time_in_start',

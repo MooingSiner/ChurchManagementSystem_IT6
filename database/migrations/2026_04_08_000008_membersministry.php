@@ -17,6 +17,8 @@ return new class extends Migration
         $table->unsignedBigInteger('ministry_id');
         $table->string('role_in_ministry')->nullable();
         $table->date('date_joined')->nullable();
+        $table->enum('status', ['active', 'inactive', 'left'])->default('active');
+        $table->timestamps();
 
 
         $table->foreign('member_id')
@@ -38,6 +40,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        //
+        Schema::dropIfExists('members_ministries');
     }
 };

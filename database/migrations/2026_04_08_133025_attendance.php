@@ -16,7 +16,7 @@ return new class extends Migration
 
             $table->unsignedBigInteger('member_id');
             $table->unsignedBigInteger('event_id');
-            $table->unsignedBigInteger('admin_id')->nullable();
+            $table->unsignedBigInteger('administrator_id')->nullable();
             $table->unsignedBigInteger('attendance_session_id')->nullable();
 
             $table->timestamp('attended_at')->nullable();
@@ -37,8 +37,8 @@ return new class extends Migration
             $table->foreign('event_id')->references('event_id')
                   ->on('events')->onDelete('cascade');
 
-            $table->foreign('admin_id')->references('admin_id')
-                  ->on('admins')->onDelete('set null');
+            $table->foreign('administrator_id')->references('administrator_id')
+                  ->on('administrators')->onDelete('set null');
 
             $table->unique(['member_id', 'attendance_session_id']);
         });

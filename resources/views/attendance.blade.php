@@ -170,7 +170,7 @@
           </div>
         @endif
 
-        @if($attendanceSessions->isEmpty())
+        @if($attendanceSessions->isEmpty() && ! request()->hasAny(['attendance_search', 'event_id', 'type_name', 'attendance_date']))
           <div class="bg-white border-2 border-dashed border-gray-300 rounded-lg">
             <div class="flex flex-col items-center justify-center px-6 py-16 text-center">
               <svg class="h-16 w-16 text-gray-400 mb-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -189,7 +189,7 @@
             </div>
           </div>
         @elseif(!$isMarkingAttendance)
-          <div class="grid grid-cols-1 gap-3 lg:grid-cols-5">
+          <form method="GET" action="{{ route('attendance') }}" class="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
             <div class="relative lg:col-span-2">
               <svg class="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
@@ -197,25 +197,34 @@
               <input
                 type="text"
                 id="attendanceSessionSearch"
+                name="attendance_search"
+                value="{{ request('attendance_search') }}"
                 placeholder="Search attendance name..."
                 class="w-full pl-10 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                onkeyup="filterAttendanceSessions()"
               />
             </div>
-            <select id="attendanceEventFilter" onchange="filterAttendanceSessions()" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <select id="attendanceEventFilter" name="event_id" onchange="this.form.submit()" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="">All Events</option>
               @foreach($events as $event)
-                <option value="{{ strtolower($event->event_name) }}">{{ $event->event_name }}</option>
+                <option value="{{ $event->event_id }}" @selected((string) request('event_id') === (string) $event->event_id)>{{ $event->event_name }}</option>
               @endforeach
             </select>
-            <select id="attendanceTypeFilter" onchange="filterAttendanceSessions()" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <select id="attendanceTypeFilter" name="type_name" onchange="this.form.submit()" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option value="">All Types</option>
               @foreach($attendanceTypes as $typeName)
-                <option value="{{ strtolower($typeName) }}">{{ $typeName }}</option>
+                <option value="{{ $typeName }}" @selected(request('type_name') === $typeName)>{{ $typeName }}</option>
               @endforeach
             </select>
-            <input id="attendanceDateFilter" type="date" onchange="filterAttendanceSessions()" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 lg:col-span-1">
-          </div>
+            <input id="attendanceDateFilter" name="attendance_date" value="{{ request('attendance_date') }}" type="date" onchange="this.form.submit()" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <div class="grid grid-cols-2 gap-2 sm:col-span-2 xl:col-span-1">
+              <button type="submit" class="px-4 py-2 rounded-md text-sm font-medium text-[#F2F8FF] bg-[#030213] hover:bg-[#0a0920]">
+                Search
+              </button>
+              <a href="{{ route('attendance') }}" class="px-4 py-2 rounded-md border border-gray-300 text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 text-center">
+                Clear
+              </a>
+            </div>
+          </form>
 
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             @foreach($attendanceSessions as $session)
@@ -350,7 +359,7 @@
           <div class="mt-6">
             {{ $attendanceSessions->links() }}
           </div>
-          <p id="attendanceNoResults" class="hidden text-sm text-gray-500">No attendance records match your search.</p>
+          <p id="attendanceNoResults" class="{{ $attendanceSessions->isEmpty() ? '' : 'hidden' }} text-sm text-gray-500">No attendance records match your search.</p>
         @else
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div class="bg-white rounded-lg shadow border">

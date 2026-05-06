@@ -11,8 +11,8 @@ return new class extends Migration
      */
     public function up(): void
 {
-    Schema::create('admins', function (Blueprint $table) {
-        $table->id('admin_id');
+    Schema::create('administrators', function (Blueprint $table) {
+        $table->id('administrator_id');
         $table->string('username')->unique();
         $table->string('password');
         $table->enum('role',['super_admin','admin'])->default('admin');
@@ -26,6 +26,6 @@ return new class extends Migration
      */
     public function down(): void
     {
-        //
+        Schema::dropIfExists('administrators');
     }
 };

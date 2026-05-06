@@ -1,4 +1,4 @@
-﻿-- phpMyAdmin SQL Dump
+-- phpMyAdmin SQL Dump
 -- version 5.2.1
 -- https://www.phpmyadmin.net/
 --
@@ -25,11 +25,11 @@ DELIMITER $$
 --
 -- Procedures
 --
-CREATE PROCEDURE `AddAttendance` (IN `p_member_id` BIGINT, IN `p_event_id` BIGINT, IN `p_admin_id` BIGINT, IN `p_status` VARCHAR(50))   BEGIN
+CREATE PROCEDURE `AddAttendance` (IN `p_member_id` BIGINT, IN `p_event_id` BIGINT, IN `p_administrator_id` BIGINT, IN `p_status` VARCHAR(50))   BEGIN
     INSERT INTO attendances (
         member_id,
         event_id,
-        admin_id,
+        administrator_id,
         attended_at,
         status,
         created_at,
@@ -38,7 +38,7 @@ CREATE PROCEDURE `AddAttendance` (IN `p_member_id` BIGINT, IN `p_event_id` BIGIN
     VALUES (
         p_member_id,
         p_event_id,
-        p_admin_id,
+        p_administrator_id,
         NOW(),
         p_status,
         NOW(),
@@ -98,11 +98,11 @@ DELIMITER ;
 -- --------------------------------------------------------
 
 --
--- Table structure for table `admins`
+-- Table structure for table `administrators`
 --
 
-CREATE TABLE `admins` (
-  `admin_id` bigint(20) UNSIGNED NOT NULL,
+CREATE TABLE `administrators` (
+  `administrator_id` bigint(20) UNSIGNED NOT NULL,
   `username` varchar(255) NOT NULL,
   `password` varchar(255) NOT NULL,
   `role` enum('super_admin','admin') NOT NULL DEFAULT 'admin',
@@ -111,10 +111,10 @@ CREATE TABLE `admins` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
--- Dumping data for table `admins`
+-- Dumping data for table `administrators`
 --
 
-INSERT INTO `admins` (`admin_id`, `username`, `password`, `role`, `created_at`, `updated_at`) VALUES
+INSERT INTO `administrators` (`administrator_id`, `username`, `password`, `role`, `created_at`, `updated_at`) VALUES
 (1, 'superadmin', '$2y$12$VqSaljn6l88IgQI4wpI1YuBlLu0uweUaJUxk2sPbRblfy4PRxZWOi', 'super_admin', '2026-04-29 16:08:18', '2026-04-29 16:15:33'),
 (2, 'admin', '$2y$12$M3zwhu/SsTZLpE9ZvAR39uwNEtJ.IVfztZhcKthqRZP8c2piL4sra', 'admin', '2026-04-29 16:08:18', '2026-04-29 16:15:34');
 
@@ -128,7 +128,7 @@ CREATE TABLE `attendances` (
   `attendance_id` bigint(20) UNSIGNED NOT NULL,
   `member_id` bigint(20) UNSIGNED NOT NULL,
   `event_id` bigint(20) UNSIGNED NOT NULL,
-  `admin_id` bigint(20) UNSIGNED DEFAULT NULL,
+  `administrator_id` bigint(20) UNSIGNED DEFAULT NULL,
   `attendance_session_id` bigint(20) UNSIGNED DEFAULT NULL,
   `attended_at` timestamp NULL DEFAULT NULL,
   `time_in` timestamp NULL DEFAULT NULL,
@@ -142,7 +142,7 @@ CREATE TABLE `attendances` (
 -- Dumping data for table `attendances`
 --
 
-INSERT INTO `attendances` (`attendance_id`, `member_id`, `event_id`, `admin_id`, `attendance_session_id`, `attended_at`, `time_in`, `time_out`, `status`, `created_at`, `updated_at`) VALUES
+INSERT INTO `attendances` (`attendance_id`, `member_id`, `event_id`, `administrator_id`, `attendance_session_id`, `attended_at`, `time_in`, `time_out`, `status`, `created_at`, `updated_at`) VALUES
 (1, 1, 1, 1, 7, '2026-04-29 16:08:19', NULL, NULL, 'Present', '2026-04-29 16:08:19', '2026-04-29 16:08:19'),
 (2, 2, 2, 1, 8, '2026-04-29 16:08:19', NULL, NULL, 'Present', '2026-04-29 16:08:19', '2026-04-29 16:08:19');
 
@@ -155,7 +155,7 @@ INSERT INTO `attendances` (`attendance_id`, `member_id`, `event_id`, `admin_id`,
 CREATE TABLE `attendance_sessions` (
   `attendance_session_id` bigint(20) UNSIGNED NOT NULL,
   `event_id` bigint(20) UNSIGNED NOT NULL,
-  `admin_id` bigint(20) UNSIGNED DEFAULT NULL,
+  `administrator_id` bigint(20) UNSIGNED DEFAULT NULL,
   `attendance_name` varchar(255) NOT NULL,
   `attendance_date` date NOT NULL,
   `time_in_start` time DEFAULT NULL,
@@ -168,7 +168,7 @@ CREATE TABLE `attendance_sessions` (
 -- Dumping data for table `attendance_sessions`
 --
 
-INSERT INTO `attendance_sessions` (`attendance_session_id`, `event_id`, `admin_id`, `attendance_name`, `attendance_date`, `time_in_start`, `time_out_end`, `created_at`, `updated_at`) VALUES
+INSERT INTO `attendance_sessions` (`attendance_session_id`, `event_id`, `administrator_id`, `attendance_name`, `attendance_date`, `time_in_start`, `time_out_end`, `created_at`, `updated_at`) VALUES
 (7, 1, 1, 'Morning Attendance', '2026-05-05', '08:00:00', '10:00:00', '2026-04-29 16:08:18', '2026-04-29 16:08:18'),
 (8, 2, 1, 'Evening Attendance', '2026-05-07', '18:00:00', '19:30:00', '2026-04-29 16:08:18', '2026-04-29 16:08:18'),
 (10, 6, 1, 'Whole Day Attendance', '2026-04-30', '05:30:00', '21:30:00', '2026-04-29 16:24:00', '2026-04-29 16:24:00'),
@@ -231,7 +231,7 @@ CREATE TABLE `events` (
   `description` text DEFAULT NULL,
   `status` enum('upcoming','ongoing','finished') NOT NULL DEFAULT 'upcoming',
   `type_id` bigint(20) UNSIGNED NOT NULL,
-  `admin_id` bigint(20) UNSIGNED NOT NULL,
+  `administrator_id` bigint(20) UNSIGNED DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -240,7 +240,7 @@ CREATE TABLE `events` (
 -- Dumping data for table `events`
 --
 
-INSERT INTO `events` (`event_id`, `event_name`, `start_date`, `end_date`, `start_time`, `end_time`, `description`, `status`, `type_id`, `admin_id`, `created_at`, `updated_at`) VALUES
+INSERT INTO `events` (`event_id`, `event_name`, `start_date`, `end_date`, `start_time`, `end_time`, `description`, `status`, `type_id`, `administrator_id`, `created_at`, `updated_at`) VALUES
 (1, 'Sunday Worship Service', '2026-05-05', '2026-05-05', '00:00:00', '10:00:00', 'Weekly worship service', 'upcoming', 1, 1, '2026-04-29 16:08:18', '2026-04-29 16:40:06'),
 (2, 'Prayer Meeting', '2026-05-07', '2026-05-07', '18:00:00', '19:30:00', 'Evening prayer meeting', 'upcoming', 2, 1, '2026-04-29 16:08:18', '2026-04-29 16:08:18'),
 (4, 'Bible Study Session', '2026-04-05', '2026-05-12', '00:00:00', '18:30:00', 'Bible sharing and discussion', 'ongoing', 5, 1, '2026-04-29 16:08:18', '2026-04-29 16:40:13'),
@@ -361,7 +361,10 @@ CREATE TABLE `members_ministries` (
   `member_id` bigint(20) UNSIGNED NOT NULL,
   `ministry_id` bigint(20) UNSIGNED NOT NULL,
   `role_in_ministry` varchar(255) DEFAULT NULL,
-  `date_joined` date DEFAULT NULL
+  `date_joined` date DEFAULT NULL,
+  `status` enum('active','inactive','left') NOT NULL DEFAULT 'active',
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -540,11 +543,11 @@ CREATE ALGORITHM=UNDEFINED SQL SECURITY INVOKER VIEW `event_attendance_summary` 
 --
 
 --
--- Indexes for table `admins`
+-- Indexes for table `administrators`
 --
-ALTER TABLE `admins`
-  ADD PRIMARY KEY (`admin_id`),
-  ADD UNIQUE KEY `admins_username_unique` (`username`);
+ALTER TABLE `administrators`
+  ADD PRIMARY KEY (`administrator_id`),
+  ADD UNIQUE KEY `administrators_username_unique` (`username`);
 
 --
 -- Indexes for table `attendances`
@@ -554,7 +557,7 @@ ALTER TABLE `attendances`
   ADD UNIQUE KEY `attendances_member_id_attendance_session_id_unique` (`member_id`,`attendance_session_id`),
   ADD KEY `attendances_attendance_session_id_foreign` (`attendance_session_id`),
   ADD KEY `attendances_event_id_foreign` (`event_id`),
-  ADD KEY `attendances_admin_id_foreign` (`admin_id`);
+  ADD KEY `attendances_administrator_id_foreign` (`administrator_id`);
 
 --
 -- Indexes for table `attendance_sessions`
@@ -562,7 +565,7 @@ ALTER TABLE `attendances`
 ALTER TABLE `attendance_sessions`
   ADD PRIMARY KEY (`attendance_session_id`),
   ADD KEY `attendance_sessions_event_id_foreign` (`event_id`),
-  ADD KEY `attendance_sessions_admin_id_foreign` (`admin_id`);
+  ADD KEY `attendance_sessions_administrator_id_foreign` (`administrator_id`);
 
 --
 -- Indexes for table `cache`
@@ -584,7 +587,7 @@ ALTER TABLE `cache_locks`
 ALTER TABLE `events`
   ADD PRIMARY KEY (`event_id`),
   ADD KEY `events_type_id_foreign` (`type_id`),
-  ADD KEY `events_admin_id_foreign` (`admin_id`);
+  ADD KEY `events_administrator_id_foreign` (`administrator_id`);
 
 --
 -- Indexes for table `failed_jobs`
@@ -632,7 +635,8 @@ ALTER TABLE `migrations`
 -- Indexes for table `ministries`
 --
 ALTER TABLE `ministries`
-  ADD PRIMARY KEY (`ministry_id`);
+  ADD PRIMARY KEY (`ministry_id`),
+  ADD UNIQUE KEY `ministries_ministry_name_unique` (`ministry_name`);
 
 --
 -- Indexes for table `password_reset_tokens`
@@ -661,7 +665,8 @@ ALTER TABLE `sessions`
 -- Indexes for table `types`
 --
 ALTER TABLE `types`
-  ADD PRIMARY KEY (`type_id`);
+  ADD PRIMARY KEY (`type_id`),
+  ADD UNIQUE KEY `types_type_name_unique` (`type_name`);
 
 --
 -- Indexes for table `users`
@@ -675,10 +680,10 @@ ALTER TABLE `users`
 --
 
 --
--- AUTO_INCREMENT for table `admins`
+-- AUTO_INCREMENT for table `administrators`
 --
-ALTER TABLE `admins`
-  MODIFY `admin_id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
+ALTER TABLE `administrators`
+  MODIFY `administrator_id` bigint(20) UNSIGNED NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3;
 
 --
 -- AUTO_INCREMENT for table `attendances`
@@ -760,7 +765,7 @@ ALTER TABLE `users`
 -- Constraints for table `attendances`
 --
 ALTER TABLE `attendances`
-  ADD CONSTRAINT `attendances_admin_id_foreign` FOREIGN KEY (`admin_id`) REFERENCES `admins` (`admin_id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `attendances_administrator_id_foreign` FOREIGN KEY (`administrator_id`) REFERENCES `administrators` (`administrator_id`) ON DELETE SET NULL,
   ADD CONSTRAINT `attendances_attendance_session_id_foreign` FOREIGN KEY (`attendance_session_id`) REFERENCES `attendance_sessions` (`attendance_session_id`) ON DELETE CASCADE,
   ADD CONSTRAINT `attendances_event_id_foreign` FOREIGN KEY (`event_id`) REFERENCES `events` (`event_id`) ON DELETE CASCADE,
   ADD CONSTRAINT `attendances_member_id_foreign` FOREIGN KEY (`member_id`) REFERENCES `members` (`member_id`) ON DELETE CASCADE;
@@ -769,14 +774,14 @@ ALTER TABLE `attendances`
 -- Constraints for table `attendance_sessions`
 --
 ALTER TABLE `attendance_sessions`
-  ADD CONSTRAINT `attendance_sessions_admin_id_foreign` FOREIGN KEY (`admin_id`) REFERENCES `admins` (`admin_id`) ON DELETE SET NULL,
+  ADD CONSTRAINT `attendance_sessions_administrator_id_foreign` FOREIGN KEY (`administrator_id`) REFERENCES `administrators` (`administrator_id`) ON DELETE SET NULL,
   ADD CONSTRAINT `attendance_sessions_event_id_foreign` FOREIGN KEY (`event_id`) REFERENCES `events` (`event_id`) ON DELETE CASCADE;
 
 --
 -- Constraints for table `events`
 --
 ALTER TABLE `events`
-  ADD CONSTRAINT `events_admin_id_foreign` FOREIGN KEY (`admin_id`) REFERENCES `admins` (`admin_id`) ON DELETE CASCADE,
+  ADD CONSTRAINT `events_administrator_id_foreign` FOREIGN KEY (`administrator_id`) REFERENCES `administrators` (`administrator_id`) ON DELETE SET NULL,
   ADD CONSTRAINT `events_type_id_foreign` FOREIGN KEY (`type_id`) REFERENCES `types` (`type_id`) ON DELETE CASCADE;
 
 --
