@@ -554,17 +554,17 @@
 
         <div>
           <label for="attendanceDate" class="block text-sm font-medium text-gray-700 mb-2">Attendance Date</label>
-          <input id="attendanceDate" type="date" name="attendance_date" value="{{ old('attendance_date') }}" required class="w-full px-4 py-3 border border-gray-200 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <input id="attendanceDate" type="date" name="attendance_date" min="{{ now('Asia/Manila')->toDateString() }}" value="{{ old('attendance_date', now('Asia/Manila')->toDateString()) }}" required class="w-full px-4 py-3 border border-gray-200 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
         </div>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label for="timeInStart" class="block text-sm font-medium text-gray-700 mb-2">Time In</label>
-            <input id="timeInStart" type="time" name="time_in_start" value="{{ old('time_in_start') }}" class="w-full px-4 py-3 border border-gray-200 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <input id="timeInStart" type="time" name="time_in_start" value="{{ old('time_in_start', '08:00') }}" class="w-full px-4 py-3 border border-gray-200 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
           </div>
           <div>
             <label for="timeOutEnd" class="block text-sm font-medium text-gray-700 mb-2">Time Out</label>
-            <input id="timeOutEnd" type="time" name="time_out_end" value="{{ old('time_out_end') }}" class="w-full px-4 py-3 border border-gray-200 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <input id="timeOutEnd" type="time" name="time_out_end" value="{{ old('time_out_end', '18:00') }}" class="w-full px-4 py-3 border border-gray-200 bg-gray-100 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
           </div>
         </div>
 
@@ -681,7 +681,31 @@ function showToast(message, type = 'success') {
       }
     });
 
+    function prepareCreateAttendanceDefaults() {
+      const attendanceDate = document.getElementById('attendanceDate');
+      const timeInStart = document.getElementById('timeInStart');
+      const timeOutEnd = document.getElementById('timeOutEnd');
+      const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+
+      if (attendanceDate) {
+        attendanceDate.min = today;
+
+        if (!attendanceDate.value || attendanceDate.value < today) {
+          attendanceDate.value = today;
+        }
+      }
+
+      if (timeInStart && !timeInStart.value) {
+        timeInStart.value = '08:00';
+      }
+
+      if (timeOutEnd && !timeOutEnd.value) {
+        timeOutEnd.value = '18:00';
+      }
+    }
+
     function openCreateAttendanceModal() {
+      prepareCreateAttendanceDefaults();
       document.getElementById('createAttendanceModal').classList.remove('hidden');
     }
 
@@ -736,6 +760,8 @@ function showToast(message, type = 'success') {
         emptyState.classList.toggle('hidden', visibleCount > 0);
       }
     }
+
+    document.addEventListener('DOMContentLoaded', prepareCreateAttendanceDefaults);
 
     function filterAttendanceSessions() {
       const search = (document.getElementById('attendanceSessionSearch')?.value || '').toLowerCase();

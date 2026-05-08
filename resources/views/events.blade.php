@@ -401,6 +401,8 @@
                 id="startDate"
                 name="start_date"
                 type="date"
+                min="{{ now('Asia/Manila')->toDateString() }}"
+                value="{{ old('start_date', now('Asia/Manila')->toDateString()) }}"
                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
               />
@@ -411,6 +413,7 @@
                 id="startTime"
                 name="start_time"
                 type="time"
+                value="{{ old('start_time', '06:00') }}"
                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
               />
@@ -424,6 +427,8 @@
                 id="endDate"
                 name="end_date"
                 type="date"
+                min="{{ old('start_date', now('Asia/Manila')->toDateString()) }}"
+                value="{{ old('end_date', old('start_date', now('Asia/Manila')->toDateString())) }}"
                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
               />
@@ -434,6 +439,7 @@
                 id="endTime"
                 name="end_time"
                 type="time"
+                value="{{ old('end_time', '23:59') }}"
                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
               />
@@ -569,7 +575,32 @@ function showToast(message, type = 'success') {
 }
 </script>
   <script>
+    function syncEventDateLimits(startDateId, endDateId) {
+        const startDateInput = document.getElementById(startDateId);
+        const endDateInput = document.getElementById(endDateId);
+
+        if (!startDateInput || !endDateInput) {
+            return;
+        }
+
+        const syncEndDate = () => {
+            if (!startDateInput.value) {
+                return;
+            }
+
+            endDateInput.min = startDateInput.value;
+
+            if (!endDateInput.value || endDateInput.value < startDateInput.value) {
+                endDateInput.value = startDateInput.value;
+            }
+        };
+
+        startDateInput.addEventListener('change', syncEndDate);
+        syncEndDate();
+    }
+
     function openEventModal() {
+      syncEventDateLimits('startDate', 'endDate');
       document.getElementById('eventModal').classList.remove('hidden');
     }
 
@@ -578,6 +609,7 @@ function showToast(message, type = 'success') {
     }
 
     function openEventModal() {
+        syncEventDateLimits('startDate', 'endDate');
         document.getElementById('eventModal').classList.remove('hidden');
     }
 
@@ -596,6 +628,7 @@ function showToast(message, type = 'success') {
         document.getElementById('edit_start_time').value = startTime;
         document.getElementById('edit_end_time').value = endTime;
         document.getElementById('edit_description').value = description ?? '';
+        syncEventDateLimits('edit_start_date', 'edit_end_date');
 
         document.getElementById('editEventModal').classList.remove('hidden');
     }
@@ -668,6 +701,11 @@ setInterval(checkEvents, 5000);
 
 // Run immediately
 checkEvents();
+
+document.addEventListener('DOMContentLoaded', () => {
+    syncEventDateLimits('startDate', 'endDate');
+    syncEventDateLimits('edit_start_date', 'edit_end_date');
+});
 
 </script>
 @if(session('success'))

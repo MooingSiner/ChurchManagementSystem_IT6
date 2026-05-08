@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Validator;
 
 class EventController extends Controller
 {
-    protected function validateEvent(Request $request): array
+    protected function validateEvent(Request $request, bool $preventPastStartDate = false): array
     {
         $validator = Validator::make($request->all(), [
             'event_name' => 'required|string|max:255',
@@ -23,11 +23,21 @@ class EventController extends Controller
             'type_id' => 'required|integer|exists:types,type_id',
         ]);
 
-        $validator->after(function ($validator) use ($request) {
+        $validator->after(function ($validator) use ($request, $preventPastStartDate) {
             $startDate = $request->input('start_date');
             $endDate = $request->input('end_date');
             $startTime = $request->input('start_time');
             $endTime = $request->input('end_time');
+
+            if ($preventPastStartDate && $startDate) {
+                try {
+                    if (Carbon::parse($startDate, 'Asia/Manila')->lt(Carbon::today('Asia/Manila'))) {
+                        $validator->errors()->add('start_date', 'Start date cannot be in the past.');
+                    }
+                } catch (\Throwable) {
+                    // The date rule will report malformed dates.
+                }
+            }
 
             if ($startDate && $endDate && $startTime && $endTime && $startDate === $endDate && $endTime <= $startTime) {
                 $validator->errors()->add('end_time', 'End time must be later than start time for same-day events.');
@@ -165,7 +175,7 @@ class EventController extends Controller
 
     public function store(Request $request)
     {
-        $validatedData = $this->validateEvent($request);
+        $validatedData = $this->validateEvent($request, true);
 
         $eventId = DB::table('events')->insertGetId([
             'event_name' => $validatedData['event_name'],

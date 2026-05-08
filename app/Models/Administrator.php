@@ -34,6 +34,16 @@ class Administrator extends Authenticatable
         };
     }
 
+    public function admin()
+    {
+        return $this->hasOne(Admin::class, 'administrator_id', 'administrator_id');
+    }
+
+    public function superadmin()
+    {
+        return $this->hasOne(Superadmin::class, 'administrator_id', 'administrator_id');
+    }
+
     public function events()
     {
         return $this->hasMany(Event::class, 'administrator_id', 'administrator_id');

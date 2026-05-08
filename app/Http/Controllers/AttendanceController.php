@@ -58,7 +58,7 @@ class AttendanceController extends Controller
         return DB::table('events')->where('event_id', $eventId)->first();
     }
 
-    protected function validateSessionData(Request $request): array
+    protected function validateSessionData(Request $request, bool $preventPastAttendanceDate = false): array
     {
         $request->merge([
             'attendance_date' => $this->normalizeDateInput($request->input('attendance_date')),
@@ -76,12 +76,22 @@ class AttendanceController extends Controller
             'time_out_end' => 'nullable|date_format:H:i',
         ]);
 
-        $validator->after(function ($validator) use ($request, $event) {
+        $validator->after(function ($validator) use ($request, $event, $preventPastAttendanceDate) {
             $timeIn = $request->input('time_in_start');
             $timeOut = $request->input('time_out_end');
 
             if ($timeIn && $timeOut && $timeOut <= $timeIn) {
                 $validator->errors()->add('time_out_end', 'Time out must be later than time in.');
+            }
+
+            if ($preventPastAttendanceDate && $request->filled('attendance_date')) {
+                try {
+                    if (Carbon::parse($request->input('attendance_date'), 'Asia/Manila')->lt(Carbon::today('Asia/Manila'))) {
+                        $validator->errors()->add('attendance_date', 'Attendance date cannot be in the past.');
+                    }
+                } catch (Exception) {
+                    // The date rule will report malformed dates.
+                }
             }
 
             if ($event && $request->filled('attendance_date')) {
@@ -381,7 +391,7 @@ class AttendanceController extends Controller
     public function storeSession(Request $request)
     {
         try {
-            $validated = $this->validateSessionData($request);
+            $validated = $this->validateSessionData($request, true);
             $request->validate([
                 'event_id' => 'required|exists:events,event_id',
             ]);
